@@ -1,0 +1,413 @@
+// Package ff is the fuzzy finder UI of goda-fi.vim, as ddu-ui-ff: the items in
+// a buffer of a split window, filtered by what is typed in the command line
+// (input(), not a popup: the window and Vim stay yours).
+//
+// The Go side makes what the buffer shows; autoload/goda_fi/ui/ff.vim applies
+// it in one call, and drops what is older than what it shows. Moving the
+// cursor and the filter input are handled in Vim; the actions on items come
+// here, with the version of what Vim showed.
+package ff
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"sync"
+
+	"github.com/Shougo/goda-fi.vim/fi"
+	"github.com/Shougo/goda.vim/sdk"
+)
+
+// Params are the UI params (uiParams.ff), as ddu-ui-ff's. Sizes may be
+// numbers or Vim expressions ("&lines / 2").
+type Params struct {
+	// Split: "horizontal", "vertical", "tab" or "no" (the current window).
+	Split string `json:"split"`
+	// SplitDirection: "botright", "topleft", "belowright" or "aboveleft".
+	SplitDirection string `json:"splitDirection"`
+	WinHeight      any    `json:"winHeight"`
+	WinWidth       any    `json:"winWidth"`
+	// MaxDisplayItems bounds the lines of the buffer.
+	MaxDisplayItems int `json:"maxDisplayItems"`
+	// MaxHighlightItems bounds the items whose highlights are drawn.
+	MaxHighlightItems int `json:"maxHighlightItems"`
+	// DisplaySourceName: "no", "short" or "long".
+	DisplaySourceName string `json:"displaySourceName"`
+	// Reversed: the first item at the bottom.
+	Reversed bool `json:"reversed"`
+	// IgnoreEmpty: no window when the sources gathered nothing.
+	IgnoreEmpty bool `json:"ignoreEmpty"`
+	// CursorPos: the line of the cursor when the window opens (0: the
+	// first item).
+	CursorPos int `json:"cursorPos"`
+	// Highlights: groups of "selected" (Statement) and "filterText".
+	Highlights map[string]string `json:"highlights"`
+	// OverwriteStatusline: the window shows the name, the counts and the
+	// input in its status line.
+	OverwriteStatusline bool `json:"overwriteStatusline"`
+	// Preview window: "horizontal", "vertical" or "no" (none).
+	PreviewSplit  string `json:"previewSplit"`
+	PreviewHeight any    `json:"previewHeight"`
+	PreviewWidth  any    `json:"previewWidth"`
+	// PreviewMaxSize: larger files are not previewed.
+	PreviewMaxSize int `json:"previewMaxSize"`
+}
+
+// DefaultParams are those of ddu-ui-ff.
+func DefaultParams() Params {
+	return Params{
+		Split:               "horizontal",
+		SplitDirection:      "botright",
+		WinHeight:           20,
+		WinWidth:            "&columns / 2",
+		MaxDisplayItems:     1000,
+		MaxHighlightItems:   100,
+		DisplaySourceName:   "no",
+		OverwriteStatusline: true,
+		PreviewSplit:        "horizontal",
+		PreviewHeight:       10,
+		PreviewWidth:        80,
+		PreviewMaxSize:      1000000,
+	}
+}
+
+// UI is the ff UI. One serves every session.
+type UI struct {
+	mu    sync.Mutex
+	state map[string]*session
+}
+
+type session struct {
+	// input last drawn: the cursor goes to the first item when it changes.
+	input string
+	// shown: the window was opened.
+	shown bool
+}
+
+// New returns the UI, to add to the builder.
+func New() *UI { return &UI{state: map[string]*session{}} }
+
+func (*UI) Name() string { return "ff" }
+
+// Acks: goda_fi#ui#ff#_redraw() acknowledges every redraw.
+func (*UI) Acks() bool { return true }
+
+func (u *UI) session(name string) *session {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	s := u.state[name]
+	if s == nil {
+		s = &session{}
+		u.state[name] = s
+	}
+	return s
+}
+
+func params(v *fi.View) (Params, error) {
+	p := DefaultParams()
+	if err := fi.Decode(v.UIParams, &p); err != nil {
+		return p, err
+	}
+	return p, nil
+}
+
+// hl is a highlight: [row, col (1-based, bytes), length (0: to the end),
+// group, priority].
+type hl = [5]any
+
+const (
+	itemPriority     = 100
+	selectedPriority = 10000
+)
+
+// render is what Vim applies (goda_fi#ui#ff#_redraw).
+type render struct {
+	Version    int64          `json:"version"`
+	Name       string         `json:"name"`
+	Open       bool           `json:"open"`
+	Lines      []string       `json:"lines"`
+	IDs        []uint64       `json:"ids"`
+	Highlights []hl           `json:"highlights"`
+	Info       []info         `json:"info"`
+	Cursor     int            `json:"cursor"`
+	Reset      bool           `json:"reset"`
+	Input      string         `json:"input"`
+	Status     [2]string      `json:"status"`
+	PrevWinID  int            `json:"prevWinid"`
+	Params     map[string]any `json:"params"`
+	Done       bool           `json:"done"`
+}
+
+type info struct {
+	Row   int     `json:"row"`
+	Lines [][]any `json:"lines"`
+}
+
+func sourcePrefix(mode, name string) string {
+	switch mode {
+	case "long":
+		return "[" + name + "] "
+	case "short":
+		var b strings.Builder
+		for _, part := range strings.FieldsFunc(name, func(r rune) bool { return r == '_' || r == '-' }) {
+			b.WriteString(part[:1])
+		}
+		return "[" + b.String() + "] "
+	}
+	return ""
+}
+
+// Redraw sends the lines of the view to Vim.
+func (u *UI) Redraw(ctx context.Context, h sdk.Host, v *fi.View) error {
+	p, err := params(v)
+	if err != nil {
+		return err
+	}
+	s := u.session(v.Context.Name)
+	if v.Open {
+		s.shown = false
+	}
+	if p.IgnoreEmpty && !s.shown && len(v.Items) == 0 {
+		// Not opened for nothing (items may still come).
+		return nil
+	}
+	n := min(len(v.Items), max(p.MaxDisplayItems, 0))
+	r := render{
+		Version:    v.Version,
+		Name:       v.Context.Name,
+		Open:       v.Open || !s.shown,
+		Lines:      make([]string, n),
+		IDs:        make([]uint64, n),
+		Highlights: []hl{},
+		Info:       []info{},
+		Input:      v.Context.Input,
+		PrevWinID:  v.Context.WinID,
+		Done:       v.Context.Done,
+		Params: map[string]any{
+			"split":               p.Split,
+			"splitDirection":      p.SplitDirection,
+			"winHeight":           p.WinHeight,
+			"winWidth":            p.WinWidth,
+			"reversed":            p.Reversed,
+			"overwriteStatusline": p.OverwriteStatusline,
+			"previewSplit":        p.PreviewSplit,
+			"previewHeight":       p.PreviewHeight,
+			"previewWidth":        p.PreviewWidth,
+			"filterPrompt":        derefString(v.UIOptions.FilterPrompt),
+			"filterUpdateMax":     derefInt(v.UIOptions.FilterUpdateMax),
+			"itemCount":           len(v.Items),
+		},
+	}
+	selected := p.Highlights["selected"]
+	if selected == "" {
+		selected = "Statement"
+	}
+	row := func(i int) int {
+		if p.Reversed {
+			return n - i
+		}
+		return i + 1
+	}
+	for i := range n {
+		it := &v.Items[i]
+		prefix := sourcePrefix(p.DisplaySourceName, it.SourceName())
+		text := prefix + oneLine(it.Text())
+		r.Lines[row(i)-1] = text
+		r.IDs[row(i)-1] = it.ID()
+		if i < p.MaxHighlightItems {
+			for _, x := range it.Highlights {
+				r.Highlights = append(r.Highlights, hl{row(i), len(prefix) + x.Col, x.Width, x.HlGroup, itemPriority})
+			}
+		}
+		if v.Selected[it.ID()] {
+			r.Highlights = append(r.Highlights, hl{row(i), 1, 0, selected, selectedPriority})
+		}
+		if len(it.Info) > 0 {
+			in := info{Row: row(i)}
+			for _, x := range it.Info {
+				in.Lines = append(in.Lines, []any{x.Text, x.HlGroup})
+			}
+			r.Info = append(r.Info, in)
+		}
+		if v.Cursor != 0 && it.ID() == v.Cursor {
+			r.Cursor = row(i)
+		}
+	}
+	if v.InitCursor && r.Cursor == 0 && n > 0 {
+		r.Cursor = row(0)
+		if p.CursorPos > 0 {
+			r.Cursor = min(p.CursorPos, n)
+		}
+	}
+	if v.Context.Input != s.input {
+		r.Reset = true
+		s.input = v.Context.Input
+	}
+	r.Status = status(v, n)
+	s.shown = true
+	return h.Notify(ctx, "goda_fi#ui#ff#_redraw", r.Name, r)
+}
+
+// status is the status line around the line numbers, as ddu-ui-ff's:
+// [goda-fi-name] shown/gathered, and the input and [async].
+func status(v *fi.View, n int) [2]string {
+	head := "[goda-fi-" + v.Context.Name + "]"
+	if n != v.Context.MaxItems {
+		head += fmt.Sprintf(" %d/%d", n, v.Context.MaxItems)
+	}
+	var foot string
+	if v.Context.Input != "" {
+		foot += " " + v.Context.Input
+	}
+	if !v.Context.Done {
+		foot += " [async]"
+	}
+	return [2]string{head, foot}
+}
+
+func derefString(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+func derefInt(p *int) int {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
+func oneLine(s string) string {
+	if strings.ContainsAny(s, "\n\r") {
+		s = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ").Replace(s)
+	}
+	return s
+}
+
+// Quit closes the window.
+func (u *UI) Quit(ctx context.Context, h sdk.Host, v *fi.View) error {
+	u.session(v.Context.Name).shown = false
+	_, err := h.Call(ctx, "goda_fi#ui#ff#_quit", v.Context.Name, v.Version)
+	return err
+}
+
+// Actions are the UI actions done in Go; those of the cursor and the filter
+// are in Vim (autoload/goda_fi/ui/ff.vim).
+func (u *UI) Actions() map[string]fi.UIAction {
+	return map[string]fi.UIAction{
+		"itemAction":          itemAction,
+		"toggleSelectItem":    toggleSelectItem,
+		"toggleAllItems":      toggleAllItems,
+		"clearSelectAllItems": clearSelectAllItems,
+		"preview":             preview,
+		"quit":                quit,
+		"redraw":              redraw,
+	}
+}
+
+// targets are the items of an action: those selected, or that under the
+// cursor.
+func targets(a fi.UIActionArgs) []fi.Item {
+	if sel := a.Session.Selected(); len(sel) > 0 {
+		return sel
+	}
+	if a.Item != nil {
+		return []fi.Item{*a.Item}
+	}
+	return nil
+}
+
+// itemAction runs the item action params.name ("default" when unset) with
+// params.params.
+func itemAction(ctx context.Context, _ sdk.Host, a fi.UIActionArgs) (fi.ActionFlags, error) {
+	var p struct {
+		Name   string    `json:"name"`
+		Params fi.Params `json:"params"`
+	}
+	if err := fi.Decode(a.ActionParams, &p); err != nil {
+		return fi.None, err
+	}
+	items := targets(a)
+	if len(items) == 0 {
+		return fi.None, nil
+	}
+	if p.Name == "" {
+		p.Name = "default"
+	}
+	a.Session.ClearSelect()
+	return fi.None, a.Session.ItemAction(ctx, p.Name, items, p.Params)
+}
+
+func toggleSelectItem(_ context.Context, _ sdk.Host, a fi.UIActionArgs) (fi.ActionFlags, error) {
+	if a.Item != nil {
+		a.Session.ToggleSelect(a.Item.ID())
+	}
+	return fi.Redraw, nil
+}
+
+func toggleAllItems(_ context.Context, _ sdk.Host, a fi.UIActionArgs) (fi.ActionFlags, error) {
+	a.Session.ToggleSelectAll()
+	return fi.Redraw, nil
+}
+
+func clearSelectAllItems(_ context.Context, _ sdk.Host, a fi.UIActionArgs) (fi.ActionFlags, error) {
+	a.Session.ClearSelect()
+	return fi.Redraw, nil
+}
+
+func quit(ctx context.Context, _ sdk.Host, a fi.UIActionArgs) (fi.ActionFlags, error) {
+	return fi.None, a.Session.Quit(ctx)
+}
+
+// redraw: gathers the items again (as ddu-ui-ff's redraw with method
+// "refreshItems", its default), or draws them again ({method: "uiRedraw"}).
+func redraw(_ context.Context, _ sdk.Host, a fi.UIActionArgs) (fi.ActionFlags, error) {
+	var p struct {
+		Method string `json:"method"`
+	}
+	if err := fi.Decode(a.ActionParams, &p); err != nil {
+		return fi.None, err
+	}
+	if p.Method == "uiRedraw" || p.Method == "uiRefresh" {
+		return fi.Redraw, nil
+	}
+	return fi.RefreshItems, nil
+}
+
+// preview shows the preview of the item under the cursor in the preview
+// window, or closes it ({toggle: true} when it shows that item).
+func preview(ctx context.Context, h sdk.Host, a fi.UIActionArgs) (fi.ActionFlags, error) {
+	var p struct {
+		Toggle bool `json:"toggle"`
+	}
+	if err := fi.Decode(a.ActionParams, &p); err != nil {
+		return fi.None, err
+	}
+	name := a.View.Context.Name
+	if a.Item == nil {
+		_, err := h.Call(ctx, "goda_fi#ui#ff#_close_preview", name)
+		return fi.None, err
+	}
+	up, err := params(a.View)
+	if err != nil {
+		return fi.None, err
+	}
+	pv, err := a.Session.Preview(ctx, *a.Item, a.ActionParams, fi.PreviewContext{Split: up.PreviewSplit})
+	if err != nil {
+		return fi.None, err
+	}
+	if pv == nil {
+		_, err := h.Call(ctx, "goda_fi#ui#ff#_close_preview", name)
+		return fi.None, err
+	}
+	_, err = h.Call(ctx, "goda_fi#ui#ff#_preview", name, a.Item.ID(), pv, map[string]any{
+		"toggle":        p.Toggle,
+		"previewSplit":  up.PreviewSplit,
+		"previewHeight": up.PreviewHeight,
+		"previewWidth":  up.PreviewWidth,
+		"maxSize":       up.PreviewMaxSize,
+	})
+	return fi.None, err
+}

@@ -1,0 +1,357 @@
+*goda_fi.txt*	A fuzzy finder for Vim/Neovim on goda.vim
+
+License: MIT license
+
+CONTENTS                                                    *goda-fi-contents*
+
+Introduction		|goda-fi-introduction|
+Install			|goda-fi-install|
+Usage			|goda-fi-usage|
+Functions		|goda-fi-functions|
+Variables		|goda-fi-variables|
+Options			|goda-fi-options|
+UI ff			|goda-fi-ui-ff|
+Sources			|goda-fi-sources|
+Filters			|goda-fi-filters|
+Kinds			|goda-fi-kinds|
+Events			|goda-fi-events|
+Extensions		|goda-fi-extensions|
+Differences from ddu.vim	|goda-fi-ddu|
+
+==============================================================================
+INTRODUCTION                                            *goda-fi-introduction*
+
+goda-fi.vim is a fuzzy finder built on goda.vim (|goda.txt|), the successor
+of ddu.vim: sources gather items, filters match, sort and convert them, a UI
+shows them, and kinds act on them. Its options and its extensions are those
+of ddu.vim; they are written in Go and linked into one binary, your
+configuration.
+
+Every session (the option "name") is run by one goroutine, in order: items
+arriving, the input, actions. Every redraw carries a version; Vim applies one
+in one call and drops it when it is older than what it shows. The cursor
+stays on its item while items come. A redraw waits for Vim to have drawn the
+one before, so that a busy Vim skips redraws instead of queueing them.
+
+==============================================================================
+INSTALL                                                      *goda-fi-install*
+
+Requirements: Go 1.26 or later; Vim 9.1 or later (|+job| |+channel|) or
+Neovim 0.10 or later; goda.vim.
+
+Install `Shougo/goda.vim` and `Shougo/goda-fi.vim` with your plugin manager,
+then make your configuration, a Go module of your own (keep it in your
+dotfiles):
+>sh
+	mkdir -p ~/.vim/goda-fi && cd ~/.vim/goda-fi
+	# Neovim: ~/.config/nvim/goda-fi
+	cp /path/to/goda-fi.vim/examples/config/main.go .
+	go mod init goda-fi-config
+	go get github.com/Shougo/goda-fi.vim@latest
+	go mod tidy
+<
+Build it (again after every change of the configuration, and after
+updating goda-fi.vim with `go get -u`): >vim
+
+	:call goda_fi#build()
+<
+The binary goes to a cache directory (|g:goda_fi#binary|), and is started by
+the first |goda_fi#start()|.
+
+The plugin can also be served by another binary of yours, the configuration
+of goda-cmp.vim, say: pass it to that one's Main
+(`cmpBuilder.Main(fiBuilder.MainPlugin())`).
+goda-fi.vim then uses it instead of starting its own.
+
+==============================================================================
+USAGE                                                          *goda-fi-usage*
+
+Start a session: >vim
+
+	call goda_fi#start({'sources': ['filerec']})
+	call goda_fi#start({'name': 'files', 'resume': v:true})
+<
+The UI ff shows the items in a buffer of filetype "goda-fi-ff". Map its
+actions there, as with ddu-ui-ff: >vim
+
+	autocmd FileType goda-fi-ff call s:ff()
+	function! s:ff() abort
+	  nnoremap <buffer> <CR>
+	        \ <Cmd>call goda_fi#ui#do_action('itemAction')<CR>
+	  nnoremap <buffer> o
+	        \ <Cmd>call goda_fi#ui#do_action('itemAction',
+	        \ {'name': 'open', 'params': {'command': 'vsplit'}})<CR>
+	  nnoremap <buffer> i
+	        \ <Cmd>call goda_fi#ui#do_action('openFilterWindow')<CR>
+	  nnoremap <buffer> <Space>
+	        \ <Cmd>call goda_fi#ui#do_action('toggleSelectItem')<CR>
+	  nnoremap <buffer> *
+	        \ <Cmd>call goda_fi#ui#do_action('toggleAllItems')<CR>
+	  nnoremap <buffer> p
+	        \ <Cmd>call goda_fi#ui#do_action('preview')<CR>
+	  nnoremap <buffer> q
+	        \ <Cmd>call goda_fi#ui#do_action('quit')<CR>
+	endfunction
+<
+The filter is typed in the command line (|input()|); map keys there with the
+events: >vim
+
+	autocmd User GodaFi:uiOpenFilterWindow
+	      \ cnoremap <buffer> <C-n>
+	      \ <Cmd>call goda_fi#ui#do_action('cursorNext')<CR>
+	autocmd User GodaFi:uiCloseFilterWindow
+	      \ silent! cunmap <buffer> <C-n>
+<
+==============================================================================
+FUNCTIONS                                                  *goda-fi-functions*
+
+                                                             *goda_fi#build()*
+goda_fi#build()
+	Builds the configuration in |g:goda_fi#config_dir| (after
+	"go mod tidy") into |g:goda_fi#binary|. A running binary is stopped;
+	the new one starts with the next |goda_fi#start()|.
+
+                                                             *goda_fi#start()*
+goda_fi#start([{options}])
+	Starts the session {options}.name ("default"): the options of the
+	configuration, the patches of |goda_fi#custom#patch_global()| and
+	|goda_fi#custom#patch_local()|, and {options} over them.
+	A session of the same name is replaced, or resumed with "resume".
+	{options} are listed in |goda-fi-options|.
+
+                                                            *goda_fi#redraw()*
+goda_fi#redraw({name} [, {options}])
+	Filters the session {name} with {options}.input, or gathers again
+	with {options}.refresh.
+
+                                                               *goda_fi#pop()*
+goda_fi#pop([{name}])
+	Ends the session started with "push", and shows the one it replaced.
+
+                                                       *goda_fi#item_action()*
+goda_fi#item_action({name}, {action}, {items} [, {params}])
+	Runs the item action {action} on {items} (from
+	|goda_fi#ui#get_item()|).
+
+                                                       *goda_fi#get_context()*
+goda_fi#get_context({name})
+	The context of the session: its input, where it was started...
+
+                                                          *goda_fi#sessions()*
+goda_fi#sessions()
+	The names of the sessions.
+
+                                              *goda_fi#custom#patch_global()*
+goda_fi#custom#patch_global({options})
+goda_fi#custom#patch_global({key}, {value})
+	Merges {options} into the options of every session, over those of
+	the configuration (Builder.PatchGlobal). Dictionaries are merged;
+	the rest is replaced.
+
+                                               *goda_fi#custom#patch_local()*
+goda_fi#custom#patch_local({name}, {options})
+goda_fi#custom#patch_local({name}, {key}, {value})
+	The same for the sessions named {name} (Builder.PatchLocal).
+
+goda_fi#custom#get_global()                     *goda_fi#custom#get_global()*
+goda_fi#custom#get_local()                       *goda_fi#custom#get_local()*
+	The patches made.
+
+                                                     *goda_fi#ui#do_action()*
+goda_fi#ui#do_action({action} [, {params} [, {name}]])
+	Runs the UI action {action} of the session of the current buffer
+	(or {name}). See |goda-fi-ui-ff-actions|.
+
+                                                 *goda_fi#ui#multi_actions()*
+goda_fi#ui#multi_actions({actions} [, {name}])
+	Runs the UI actions in order; each is a name or [name, params].
+
+                                                      *goda_fi#ui#get_item()*
+goda_fi#ui#get_item([{name}])
+	The item under the cursor: {word, display, action, kind, __id,
+	__sourceName, __sourceIndex}, or {}.
+
+                                                     *goda_fi#ui#get_items()*
+goda_fi#ui#get_items([{name}])
+	The items shown.
+
+                                                       *goda_fi#ui#visible()*
+goda_fi#ui#visible([{name}])
+	Is the UI of the session shown?
+
+==============================================================================
+VARIABLES                                                  *goda-fi-variables*
+
+                                                            *g:goda_fi#binary*
+g:goda_fi#binary
+	The binary built by |goda_fi#build()| and started.
+	Default: "goda-fi" in the cache directory ($XDG_CACHE_HOME/vim,
+	~/.cache/vim, |stdpath()| "cache" in Neovim) under "goda-fi".
+
+                                                        *g:goda_fi#config_dir*
+g:goda_fi#config_dir
+	The configuration: a Go module.
+	Default: ~/.vim/goda-fi (Neovim: stdpath('config') . '/goda-fi').
+
+==============================================================================
+OPTIONS                                                      *goda-fi-options*
+
+The options are those of ddu.vim (|ddu-options|), with the same names, in
+Vim script and in Go (fi.Options). Supported:
+
+name		The session name ("default").
+ui		The UI ("ff").
+sources		The sources: names, or {name, options, params}.
+sourceOptions	By source name, "_" for all: matchers, sorters, converters,
+		defaultAction, ignoreCase, smartCase, matcherKey ("word" or
+		"display"), maxItems (10000), path, preview, volatile.
+sourceParams	By source name: the params of the sources.
+filterOptions	By filter name: minInputLength.
+filterParams	By filter name: the params of the filters.
+kindOptions	By kind name: defaultAction, actions (other names of
+		actions: {"o": "open"}).
+kindParams	By kind name.
+uiOptions	By UI name: filterPrompt, filterUpdateMax, persist, toggle.
+uiParams	By UI name: the params of the UI (|goda-fi-ui-ff-params|).
+actionOptions	By action name: quit (v:true).
+actionParams	By action name: the params of the actions.
+postFilters	Filters run on the items of all the sources together.
+actions		The item actions offered (all when unset).
+input		The input to start with.
+resume		Show the session as it was, without gathering again.
+refresh		Gather again when resuming.
+push		Keep the session replaced, for |goda_fi#pop()|.
+sync		Draw once every item is there.
+searchPath	Put the cursor on the item of this path.
+unique		Drop the items whose word another item has.
+
+An unknown option, source, filter or UI is an error.
+
+==============================================================================
+UI FF                                                          *goda-fi-ui-ff*
+
+ui/ff, as ddu-ui-ff: the items in a buffer ("goda-fi-ff-{name}", filetype
+"goda-fi-ff") of a split window, filtered from the command line.
+
+PARAMS                                                  *goda-fi-ui-ff-params*
+
+split			"horizontal" (default), "vertical", "tab" or "no".
+splitDirection		"botright" (default), "topleft", "belowright",
+			"aboveleft".
+winHeight		20; a number or an expression ("&lines / 3").
+winWidth		"&columns / 2".
+maxDisplayItems		1000: the lines of the buffer.
+maxHighlightItems	100: the items whose highlights are drawn.
+displaySourceName	"no", "short" or "long".
+reversed		The first item at the bottom.
+ignoreEmpty		No window without items.
+cursorPos		The line of the cursor when it opens.
+highlights		{"selected": "Statement"}.
+overwriteStatusline	v:true: the name, the counts, the input.
+previewSplit		"horizontal" (default), "vertical" or "no".
+previewHeight		10.
+previewWidth		80.
+previewMaxSize		1000000: larger files are not previewed.
+
+ACTIONS                                                *goda-fi-ui-ff-actions*
+
+itemAction		Runs params.name (the default action when unset) with
+			params.params on the items selected, or under the
+			cursor.
+toggleSelectItem	Selects the item under the cursor, or not.
+toggleAllItems		Selects all, or none.
+clearSelectAllItems	Selects none.
+cursorNext		Moves the cursor down params.count (1) lines;
+			params.loop goes around.
+cursorPrevious		The same, up.
+openFilterWindow	Types the filter in the command line; params.prompt.
+preview			Shows the item under the cursor in the preview
+			window (params.toggle: closes it when it shows that
+			item).
+redraw			Gathers again; {method: "uiRedraw"} draws again.
+quit			Closes the window.
+
+==============================================================================
+SOURCES                                                      *goda-fi-sources*
+
+file		ext/source/file (ddu-source-file): the files of a
+		directory. Params: ignoreDirectories, new.
+filerec		ext/source/filerec (ddu-source-file_rec): the files under
+		a directory. Params: chunkSize (1000), ignoredDirectories
+		([".git"]), expandSymbolicLink.
+buffer		ext/source/buffer (ddu-source-buffer): the listed buffers
+		of files, the alternate one first.
+filepoint	ext/source/filepoint (ddu-source-file_point): the file
+		under the cursor, at the line and column after it
+		("path:10:3", "path", line 10, a diff...).
+fileexternal	ext/source/fileexternal (ddu-source-file_external): the
+		files a command lists. Params: cmd (["fd", "-t", "f"]),
+		updateItems.
+
+The directory is sourceOptions.path, or the current one.
+
+==============================================================================
+FILTERS                                                      *goda-fi-filters*
+
+matchersubstring	ext/filter/matchersubstring
+			(ddu-filter-matcher_substring): every word of the
+			input; "!word" excludes, "<word" starts a word,
+			"^word" is a prefix, "word$" a suffix, "\ " a space.
+			Params: highlightMatched (""), limit (1000),
+			maxLength (500).
+
+==============================================================================
+KINDS                                                          *goda-fi-kinds*
+
+file		ext/kind/file (ddu-kind-file). Actions: open (params:
+		command "edit", maxSize), append, insert, cd, execute
+		(params: command), feedkeys, loclist, quickfix, yank.
+		Previews files and buffers.
+
+==============================================================================
+EVENTS                                                        *goda-fi-events*
+
+User autocommands, as ddu.vim's:
+
+GodaFi:uiReady			The window of the UI opened.
+GodaFi:uiRedraw			The UI was drawn.
+GodaFi:uiDone			Every item is there.
+GodaFi:uiQuit			The UI was closed.
+GodaFi:uiOpenFilterWindow	The filter is about to be typed.
+GodaFi:uiCloseFilterWindow	The filter was typed.
+
+==============================================================================
+EXTENSIONS                                                *goda-fi-extensions*
+
+An extension is a Go value implementing an interface of the package fi:
+
+fi.Source	Name, Kind, and Gather(ctx, host, args, emit): emit hands
+		items over as they come; the engine draws meanwhile. Gather
+		returns when it has no more, or ctx is done (the session
+		started over or ended). Optional: OnInit, Actions.
+fi.Filter	Name, and Filter(ctx, host, args): the items filtered (new
+		slices; items are values, change copies).
+fi.Kind		Name, and Actions: fi.Action{Description, Run}. Run
+		returns fi.ActionResult (flags as ddu.vim's: RefreshItems,
+		Redraw, Persist). Optional: Preview.
+fi.UI		Name, Redraw(view), Quit(view), Actions. Optional: Acks
+		(fi.UIAcker: Vim tells when a view is drawn).
+
+Params arrive as fi.Params; decode them over your defaults with fi.Decode,
+which rejects unknown keys. By the time a source gathers, the current window
+may be the UI's: use Context.WinID and Context.BufNr. Paths are relative to
+Vim's directory (Context.Cwd), not to that of the binary: see
+GatherArgs.SourcePath and GatherArgs.Abs.
+
+==============================================================================
+DIFFERENCES FROM DDU.VIM                                         *goda-fi-ddu*
+
+- Extensions are Go packages linked into your configuration, not TypeScript
+  loaded at run time. Their names lose the "_" ("file_rec" is "filerec").
+- Moving the cursor and the filter are done in Vim; actions and drawing in
+  Go, with versions (|goda-fi-introduction|).
+- Not yet: floating windows, trees, the filer, columns, sorters and
+  converters of this repository, autoAction, chooseAction, actions as Vim
+  functions (kindOptions.actions are other names of actions).
+
+vim:tw=78:ts=8:noet:ft=help:norl:

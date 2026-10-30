@@ -1,0 +1,502 @@
+package fi
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/Shougo/goda.vim/sdk"
+)
+
+// fakeHost records what the plugin asks of Vim.
+type fakeHost struct {
+	mu    sync.Mutex
+	calls []string
+}
+
+func (h *fakeHost) Meta() sdk.Meta { return sdk.Meta{Host: sdk.HostNone} }
+func (h *fakeHost) record(s string) {
+	h.mu.Lock()
+	h.calls = append(h.calls, s)
+	h.mu.Unlock()
+}
+func (h *fakeHost) Call(_ context.Context, fn string, args ...any) (any, error) {
+	h.record(fmt.Sprint(fn, args))
+	return nil, nil
+}
+func (h *fakeHost) Notify(_ context.Context, fn string, args ...any) error {
+	h.record(fmt.Sprint(fn, args))
+	return nil
+}
+func (h *fakeHost) Eval(context.Context, string) (any, error) { return nil, nil }
+func (h *fakeHost) Cmd(_ context.Context, c string) error     { h.record(c); return nil }
+func (h *fakeHost) log() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]string(nil), h.calls...)
+}
+
+// listSource emits its words in batches; with a gate, it waits for it
+// before the last batch.
+type listSource struct {
+	name    string
+	batches [][]string
+	gate    chan struct{}
+}
+
+func (s *listSource) Name() string { return s.name }
+func (s *listSource) Kind() string { return "word" }
+func (s *listSource) Gather(ctx context.Context, _ sdk.Host, a GatherArgs, emit func([]Item) error) error {
+	for i, b := range s.batches {
+		if s.gate != nil && i == len(s.batches)-1 {
+			select {
+			case <-s.gate:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		items := make([]Item, len(b))
+		for j, w := range b {
+			items[j] = Item{Word: w, Action: map[string]any{"path": "/" + w}}
+		}
+		if err := emit(items); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// volatileSource gathers the input.
+type volatileSource struct{}
+
+func (volatileSource) Name() string { return "echo" }
+func (volatileSource) Kind() string { return "word" }
+func (volatileSource) Gather(_ context.Context, _ sdk.Host, a GatherArgs, emit func([]Item) error) error {
+	return emit([]Item{{Word: "echo:" + a.Input}})
+}
+
+type substring struct{}
+
+func (substring) Name() string { return "substring" }
+func (substring) Filter(_ context.Context, _ sdk.Host, a FilterArgs) ([]Item, error) {
+	var out []Item
+	for _, it := range a.Items {
+		if strings.Contains(it.MatcherKey(), a.Input) {
+			out = append(out, it)
+		}
+	}
+	return out, nil
+}
+
+type upper struct{}
+
+func (upper) Name() string { return "upper" }
+func (upper) Filter(_ context.Context, _ sdk.Host, a FilterArgs) ([]Item, error) {
+	out := make([]Item, len(a.Items))
+	for i, it := range a.Items {
+		it.Display = strings.ToUpper(it.Word)
+		out[i] = it
+	}
+	return out, nil
+}
+
+// wordKind records its actions.
+type wordKind struct {
+	mu  sync.Mutex
+	ran []string
+	res ActionResult
+}
+
+func (k *wordKind) Name() string { return "word" }
+func (k *wordKind) Actions() map[string]Action {
+	return map[string]Action{
+		"echo": {Run: func(_ context.Context, _ sdk.Host, a ActionArgs) (ActionResult, error) {
+			k.mu.Lock()
+			defer k.mu.Unlock()
+			var words []string
+			for _, it := range a.Items {
+				words = append(words, it.Word)
+			}
+			k.ran = append(k.ran, fmt.Sprintf("%s %v", strings.Join(words, ","), a.ActionParams["x"]))
+			return k.res, nil
+		}},
+	}
+}
+
+// testUI hands the views to the test.
+type testUI struct {
+	views chan *View
+	quits chan struct{}
+}
+
+func newTestUI() *testUI {
+	return &testUI{views: make(chan *View, 100), quits: make(chan struct{}, 10)}
+}
+
+func (u *testUI) Name() string { return "test" }
+func (u *testUI) Redraw(_ context.Context, _ sdk.Host, v *View) error {
+	if debugViews {
+		fmt.Printf("view %d done=%v input=%q items=%q\n", v.Version, v.Context.Done, v.Context.Input, words(v.Items))
+	}
+	u.views <- v
+	return nil
+}
+func (u *testUI) Quit(context.Context, sdk.Host, *View) error {
+	u.quits <- struct{}{}
+	return nil
+}
+func (u *testUI) Actions() map[string]UIAction {
+	return map[string]UIAction{
+		"itemAction": func(ctx context.Context, _ sdk.Host, a UIActionArgs) (ActionFlags, error) {
+			it, ok := a.Session.ItemAt(a.Version, a.Cursor)
+			if !ok {
+				return None, fmt.Errorf("no item")
+			}
+			return None, a.Session.ItemAction(ctx, "default", []Item{it}, a.ActionParams)
+		},
+		"toggleSelectItem": func(_ context.Context, _ sdk.Host, a UIActionArgs) (ActionFlags, error) {
+			if it, ok := a.Session.ItemAt(a.Version, a.Cursor); ok {
+				a.Session.ToggleSelect(it.ID())
+			}
+			return Redraw, nil
+		},
+	}
+}
+
+func words(items []Item) string {
+	var w []string
+	for _, it := range items {
+		w = append(w, it.Text())
+	}
+	return strings.Join(w, " ")
+}
+
+// waitView waits for a view that satisfies ok, and returns it.
+func waitView(t *testing.T, u *testUI, ok func(*View) bool) *View {
+	t.Helper()
+	timeout := time.After(5 * time.Second)
+	for {
+		select {
+		case v := <-u.views:
+			if ok(v) {
+				return v
+			}
+		case <-timeout:
+			t.Fatal("no such view")
+			return nil
+		}
+	}
+}
+
+func done(v *View) bool { return v.Context.Done }
+
+type fixture struct {
+	e    *engine
+	h    *fakeHost
+	ui   *testUI
+	kind *wordKind
+}
+
+func newFixture(t *testing.T, sources ...Source) *fixture {
+	t.Helper()
+	f := &fixture{h: &fakeHost{}, ui: newTestUI(), kind: &wordKind{}}
+	b := New().AddUI(f.ui).AddKind(f.kind).AddFilter(substring{}).AddFilter(upper{})
+	for _, s := range sources {
+		b.AddSource(s)
+	}
+	b.PatchGlobal(Options{
+		UI:            "test",
+		SourceOptions: map[string]SourceOptions{"_": {Matchers: []string{"substring"}}},
+		KindOptions:   map[string]KindOptions{"word": {DefaultAction: "echo"}},
+	})
+	p, err := b.Plugin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.e = p.(*engine)
+	t.Cleanup(func() {
+		f.e.mu.Lock()
+		defer f.e.mu.Unlock()
+		for _, s := range f.e.sessions {
+			s.close()
+		}
+	})
+	return f
+}
+
+func (f *fixture) call(t *testing.T, method string, params ...any) any {
+	t.Helper()
+	if params == nil {
+		params = []any{}
+	}
+	gen, err := sdk.Generic(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// As Vim sends them: integers are int64.
+	v, err := f.e.Handlers()[method](context.Background(), f.h, normalize(gen).([]any))
+	if err != nil {
+		t.Fatalf("%s: %v", method, err)
+	}
+	return v
+}
+
+func normalize(v any) any {
+	switch x := v.(type) {
+	case interface{ Int64() (int64, error) }:
+		if i, err := x.Int64(); err == nil {
+			return i
+		}
+		return v
+	case []any:
+		for i := range x {
+			x[i] = normalize(x[i])
+		}
+	case map[string]any:
+		for k := range x {
+			x[k] = normalize(x[k])
+		}
+	}
+	return v
+}
+
+func TestGatherAndFilter(t *testing.T) {
+	gate := make(chan struct{})
+	src := &listSource{name: "list", batches: [][]string{{"apple", "banana"}, {"cherry"}}, gate: gate}
+	f := newFixture(t, src)
+	f.call(t, "start", map[string]any{"name": "a", "sources": []any{"list"}}, map[string]any{}, map[string]any{})
+
+	v := waitView(t, f.ui, func(v *View) bool { return len(v.Items) == 2 })
+	if v.Context.Done || !v.InitCursor || words(v.Items) != "apple banana" {
+		t.Errorf("first view: done %v init %v %q", v.Context.Done, v.InitCursor, words(v.Items))
+	}
+	close(gate)
+	v = waitView(t, f.ui, done)
+	if words(v.Items) != "apple banana cherry" || v.Context.MaxItems != 3 || v.InitCursor {
+		t.Errorf("last view: %q %d", words(v.Items), v.Context.MaxItems)
+	}
+
+	f.call(t, "redraw", "a", map[string]any{"input": "an"})
+	v = waitView(t, f.ui, func(v *View) bool { return v.Context.Input == "an" })
+	if words(v.Items) != "banana" {
+		t.Errorf("filtered: %q", words(v.Items))
+	}
+}
+
+func TestVersionsGrow(t *testing.T) {
+	f := newFixture(t, &listSource{name: "list", batches: [][]string{{"a"}, {"b"}, {"c"}}})
+	f.call(t, "start", map[string]any{"name": "v", "sources": []any{"list"}}, map[string]any{}, map[string]any{})
+	var last int64
+	v := waitView(t, f.ui, func(v *View) bool {
+		if v.Version <= last {
+			t.Errorf("version %d after %d", v.Version, last)
+		}
+		last = v.Version
+		return v.Context.Done
+	})
+	if words(v.Items) != "a b c" {
+		t.Errorf("items: %q", words(v.Items))
+	}
+}
+
+func TestItemActionByVersion(t *testing.T) {
+	f := newFixture(t, &listSource{name: "list", batches: [][]string{{"apple", "banana", "cherry"}}})
+	f.call(t, "start", map[string]any{"name": "x", "sources": []any{"list"}}, map[string]any{}, map[string]any{})
+	v1 := waitView(t, f.ui, done)
+
+	f.call(t, "redraw", "x", map[string]any{"input": "e"})
+	waitView(t, f.ui, func(v *View) bool { return v.Context.Input == "e" }) // apple cherry
+
+	// Row 2 of the first version is banana, though apple cherry is shown.
+	f.call(t, "uiAction", "x", "itemAction", map[string]any{"x": 1}, map[string]any{"version": v1.Version, "cursor": 2})
+	select {
+	case <-f.ui.quits:
+	case <-time.After(5 * time.Second):
+		t.Fatal("not quit")
+	}
+	if got := fmt.Sprint(f.kind.ran); got != "[banana 1]" {
+		t.Errorf("ran %s", got)
+	}
+}
+
+func TestSelectAndActionNames(t *testing.T) {
+	f := newFixture(t, &listSource{name: "list", batches: [][]string{{"a", "b", "c"}}})
+	f.call(t, "start", map[string]any{"name": "s", "sources": []any{"list"}}, map[string]any{}, map[string]any{})
+	v := waitView(t, f.ui, done)
+	f.call(t, "uiAction", "s", "toggleSelectItem", map[string]any{}, map[string]any{"version": v.Version, "cursor": 1})
+	f.call(t, "uiAction", "s", "toggleSelectItem", map[string]any{}, map[string]any{"version": v.Version, "cursor": 3})
+	v = waitView(t, f.ui, func(v *View) bool { return len(v.Selected) == 2 })
+	if !v.Selected[v.Items[0].ID()] || !v.Selected[v.Items[2].ID()] {
+		t.Errorf("selected %v", v.Selected)
+	}
+	names := f.call(t, "itemActionNames", "s", []any{v.Items[0].ID()})
+	if fmt.Sprint(names) != "[echo]" {
+		t.Errorf("names %v", names)
+	}
+	// The selected items, without ids.
+	f.call(t, "itemAction", "s", "echo", []any{}, map[string]any{})
+	if got := fmt.Sprint(f.kind.ran); got != "[a,c <nil>]" {
+		t.Errorf("ran %s", got)
+	}
+}
+
+func TestResume(t *testing.T) {
+	src := &listSource{name: "list", batches: [][]string{{"apple", "banana"}}}
+	f := newFixture(t, src)
+	f.call(t, "start", map[string]any{"name": "r", "sources": []any{"list"}, "input": "ban"}, map[string]any{}, map[string]any{})
+	v1 := waitView(t, f.ui, done)
+	f.call(t, "quit", "r")
+	<-f.ui.quits
+
+	f.call(t, "start", map[string]any{"name": "r", "resume": true}, map[string]any{}, map[string]any{})
+	v2 := waitView(t, f.ui, done)
+	if v2.Context.Input != "ban" || words(v2.Items) != "banana" || v2.Items[0].ID() != v1.Items[0].ID() || v2.InitCursor {
+		t.Errorf("resumed: %q %q", v2.Context.Input, words(v2.Items))
+	}
+	// Without resume: gathered again.
+	f.call(t, "start", map[string]any{"name": "r", "sources": []any{"list"}}, map[string]any{}, map[string]any{})
+	v3 := waitView(t, f.ui, done)
+	if words(v3.Items) != "apple banana" || v3.Items[0].ID() == v1.Items[0].ID() {
+		t.Errorf("restarted: %q", words(v3.Items))
+	}
+}
+
+func TestSync(t *testing.T) {
+	src := &listSource{name: "list", batches: [][]string{{"a"}, {"b"}}}
+	f := newFixture(t, src)
+	f.call(t, "start", map[string]any{"name": "y", "sources": []any{"list"}, "sync": true}, map[string]any{}, map[string]any{})
+	// start returned: every item is there, in one view.
+	select {
+	case v := <-f.ui.views:
+		if !v.Context.Done || words(v.Items) != "a b" {
+			t.Errorf("view %q", words(v.Items))
+		}
+	default:
+		t.Fatal("no view after a sync start")
+	}
+}
+
+func TestVolatileAndConverter(t *testing.T) {
+	f := newFixture(t, volatileSource{})
+	f.call(t, "start", map[string]any{
+		"name": "vo", "sources": []any{"echo"},
+		"sourceOptions": map[string]any{"echo": map[string]any{"volatile": true, "converters": []any{"upper"}}},
+	}, map[string]any{}, map[string]any{})
+	waitView(t, f.ui, done)
+	f.call(t, "redraw", "vo", map[string]any{"input": "zz"})
+	v := waitView(t, f.ui, func(v *View) bool {
+		return v.Context.Done && v.Context.Input == "zz" && len(v.Items) == 1 && v.Items[0].Word == "echo:zz"
+	})
+	if v.Items[0].Text() != "ECHO:ZZ" {
+		t.Errorf("converted %q", v.Items[0].Text())
+	}
+}
+
+func TestPersistAndSearchPath(t *testing.T) {
+	f := newFixture(t, &listSource{name: "list", batches: [][]string{{"a", "b"}}})
+	f.kind.res = ActionResult{Flags: Persist, SearchPath: "/b"}
+	f.call(t, "start", map[string]any{"name": "p", "sources": []any{"list"}}, map[string]any{}, map[string]any{})
+	v := waitView(t, f.ui, done)
+	f.call(t, "itemAction", "p", "echo", []any{v.Items[0].ID()}, map[string]any{})
+	v = waitView(t, f.ui, func(v *View) bool { return v.Cursor != 0 })
+	if v.Cursor != v.Items[1].ID() {
+		t.Errorf("cursor %d", v.Cursor)
+	}
+}
+
+func TestOptionsOrder(t *testing.T) {
+	f := newFixture(t)
+	f.e.b.PatchLocal("loc", Options{SearchPath: "builder-local"})
+	o, _, err := f.e.options(
+		map[string]any{"name": "loc", "unique": true},
+		map[string]any{
+			"global": map[string]any{"searchPath": "vim-global", "input": "g"},
+			"local":  map[string]any{"loc": map[string]any{"searchPath": "vim-local"}},
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.SearchPath != "vim-local" || strOr(o.Input, "") != "g" || !boolOr(o.Unique, false) || o.UI != "test" {
+		t.Errorf("options %+v", o)
+	}
+	if _, _, err := f.e.options(map[string]any{"sources": []any{"nope"}}, nil); err == nil {
+		t.Error("an unknown source must be an error")
+	}
+}
+
+func TestErrorsReported(t *testing.T) {
+	f := newFixture(t, failing{})
+	f.call(t, "start", map[string]any{"name": "e", "sources": []any{"fail"}}, map[string]any{}, map[string]any{})
+	waitView(t, f.ui, done)
+	found := false
+	for _, c := range f.h.log() {
+		if strings.Contains(c, "goda_fi#util#print_error") && strings.Contains(c, "boom") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("not reported: %v", f.h.log())
+	}
+}
+
+type failing struct{}
+
+func (failing) Name() string { return "fail" }
+func (failing) Kind() string { return "word" }
+func (failing) Gather(context.Context, sdk.Host, GatherArgs, func([]Item) error) error {
+	panic("boom")
+}
+
+var debugViews = false
+
+// ackUI acknowledges its redraws only when the test says so.
+type ackUI struct{ *testUI }
+
+func (ackUI) Acks() bool { return true }
+
+func TestAcks(t *testing.T) {
+	ui := ackUI{newTestUI()}
+	b := New().AddUI(ui).AddKind(&wordKind{}).AddSource(&listSource{name: "list", batches: [][]string{{"a"}, {"b"}}})
+	b.PatchGlobal(Options{UI: "test"})
+	p, err := b.Plugin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fixture{e: p.(*engine), h: &fakeHost{}, ui: ui.testUI}
+	t.Cleanup(func() {
+		for _, s := range f.e.sessions {
+			s.close()
+		}
+	})
+	f.call(t, "start", map[string]any{"name": "k", "sources": []any{"list"}}, map[string]any{}, map[string]any{})
+	v := waitView(t, f.ui, func(*View) bool { return true })
+	select {
+	case v2 := <-f.ui.views:
+		t.Fatalf("drawn before the acknowledgement: %d after %d", v2.Version, v.Version)
+	case <-time.After(200 * time.Millisecond):
+	}
+	f.call(t, "event", "k", "drawn", v.Version)
+	v = waitView(t, f.ui, done)
+	if words(v.Items) != "a b" {
+		t.Errorf("items %q", words(v.Items))
+	}
+}
+
+func TestPushPop(t *testing.T) {
+	f := newFixture(t, &listSource{name: "one", batches: [][]string{{"a"}}}, &listSource{name: "two", batches: [][]string{{"b"}}})
+	f.call(t, "start", map[string]any{"name": "pp", "sources": []any{"one"}}, map[string]any{}, map[string]any{})
+	v1 := waitView(t, f.ui, done)
+	f.call(t, "start", map[string]any{"name": "pp", "sources": []any{"two"}, "push": true}, map[string]any{}, map[string]any{})
+	waitView(t, f.ui, func(v *View) bool { return done(v) && words(v.Items) == "b" })
+	f.call(t, "pop", "pp")
+	v := waitView(t, f.ui, func(v *View) bool { return words(v.Items) == "a" })
+	if !v.Open || v.Items[0].ID() != v1.Items[0].ID() {
+		t.Errorf("popped %+v", v)
+	}
+	if got := f.call(t, "sessions"); fmt.Sprint(got) != "[pp]" {
+		t.Errorf("sessions %v", got)
+	}
+}
