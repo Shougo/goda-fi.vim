@@ -500,3 +500,39 @@ func TestPushPop(t *testing.T) {
 		t.Errorf("sessions %v", got)
 	}
 }
+
+func TestAliases(t *testing.T) {
+	f := newFixture(t)
+	f.e.b.AddSourceAs("other", &listSource{name: "list", batches: [][]string{{"x"}}})
+	f.e.b.AddActionAlias("shout", "echo")
+	f.call(t, "start", map[string]any{
+		"name": "al", "sources": []any{"other"},
+		"actionParams": map[string]any{"shout": map[string]any{"x": "loud"}},
+	}, map[string]any{}, map[string]any{})
+	v := waitView(t, f.ui, done)
+	if len(v.Items) != 1 || v.Items[0].SourceName() != "other" {
+		t.Fatalf("items %+v", v.Items)
+	}
+	if names := f.call(t, "itemActionNames", "al", []any{v.Items[0].ID()}); fmt.Sprint(names) != "[echo shout]" {
+		t.Errorf("names %v", names)
+	}
+	f.call(t, "itemAction", "al", "shout", []any{v.Items[0].ID()}, map[string]any{})
+	if got := fmt.Sprint(f.kind.ran); got != "[x loud]" {
+		t.Errorf("ran %s", got)
+	}
+}
+
+func TestUIDefaultAction(t *testing.T) {
+	f := newFixture(t, &listSource{name: "list", batches: [][]string{{"x"}}})
+	f.e.b.AddActionAlias("other", "echo")
+	f.call(t, "start", map[string]any{
+		"name": "ud", "sources": []any{"list"},
+		"uiOptions":    map[string]any{"test": map[string]any{"defaultAction": "other"}},
+		"actionParams": map[string]any{"other": map[string]any{"x": 2}},
+	}, map[string]any{}, map[string]any{})
+	v := waitView(t, f.ui, done)
+	f.call(t, "itemAction", "ud", "default", []any{v.Items[0].ID()}, map[string]any{})
+	if got := fmt.Sprint(f.kind.ran); got != "[x 2]" {
+		t.Errorf("ran %s", got)
+	}
+}

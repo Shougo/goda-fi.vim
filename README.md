@@ -6,10 +6,17 @@ A fuzzy finder for Vim and Neovim, built on
 extensions, written in Go and configured in Go — a small program you own.
 
 Status: early. The core (sessions, gathering as items come, filters, item
-actions, resume, push/pop), the UI `ff` (ddu-ui-ff: a buffer in a split
-window, filtered from the command line), the sources `file`, `filerec`,
-`buffer`, `filepoint` and `fileexternal`, the filter `matchersubstring` and
-the kind `file` work. Floating windows, trees and the filer come later.
+actions, resume, push/pop, aliases) and the UI `ff` (ddu-ui-ff: a buffer in
+a split or floating window, filtered from the command line, previews,
+autoAction) work, with:
+
+- sources: `file`, `filerec`, `fileold`, `buffer`, `filepoint`,
+  `fileexternal`, `rg`, `line`, `register`
+- filters: `matchersubstring`, `matcherhidden`, `matcherrelative`,
+  `matcherfiles`, `sorteralpha`, `sortermtime`, `converterhldir`
+- kinds: `file`, `word`
+
+Trees and the filer come later.
 
 What it does about the drawing: one goroutine per session takes every change
 in order, every redraw carries a version and is applied by Vim in one call

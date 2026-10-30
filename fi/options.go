@@ -130,6 +130,18 @@ type KindOptions struct {
 
 // UIOptions are the options of a UI, by name ("_" for every one).
 type UIOptions struct {
+	// DefaultAction is the item action of itemAction without a name, over
+	// those of the source and the kind.
+	DefaultAction string `json:"defaultAction,omitempty"`
+	// FilterInputFunc is the Vim function that reads the filter
+	// (prompt, text, completion), as input() (the default):
+	// "cmdline#input", say.
+	FilterInputFunc string `json:"filterInputFunc,omitempty"`
+	// FilterInputOptsFunc, in Neovim, takes input()'s options instead.
+	FilterInputOptsFunc string `json:"filterInputOptsFunc,omitempty"`
+	// FilterUpdateCallback is a Vim function that gets the input as it is
+	// typed and returns what filters.
+	FilterUpdateCallback string `json:"filterUpdateCallback,omitempty"`
 	// FilterPrompt is the prompt of the filter input.
 	FilterPrompt *string `json:"filterPrompt,omitempty"`
 	// FilterUpdateMax: with more items, the items are filtered when the

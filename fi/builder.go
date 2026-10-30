@@ -16,9 +16,9 @@ import (
 //
 //	b := fi.New()
 //	b.AddUI(ff.New())
-//	b.AddSource(file.New())
-//	b.AddFilter(matchersubstring.New())
-//	b.AddKind(filekind.New())
+//	b.AddSource(filerec.New(filerec.Params{}))
+//	b.AddFilter(matchersubstring.New(matchersubstring.Params{}))
+//	b.AddKind(kindfile.New())
 //	b.PatchGlobal(fi.Options{UI: "ff", ...})
 //	b.Main()
 type Builder struct {
@@ -26,6 +26,8 @@ type Builder struct {
 	filters map[string]Filter
 	kinds   map[string]Kind
 	uis     map[string]UI
+
+	actionAliases map[string]string
 
 	global patch
 	local  map[string]patch
@@ -39,8 +41,11 @@ func New() *Builder {
 		filters: map[string]Filter{},
 		kinds:   map[string]Kind{},
 		uis:     map[string]UI{},
-		global:  patch{},
-		local:   map[string]patch{},
+
+		actionAliases: map[string]string{},
+
+		global: patch{},
+		local:  map[string]patch{},
 	}
 	b.AddKind(baseKind{})
 	return b
@@ -50,25 +55,48 @@ func (b *Builder) fail(format string, args ...any) {
 	b.errs = append(b.errs, fmt.Sprintf(format, args...))
 }
 
-func add[T interface{ Name() string }](b *Builder, what string, m map[string]T, v T) *Builder {
-	if _, dup := m[v.Name()]; dup && v.Name() != "base" {
-		b.fail("%s %q added twice", what, v.Name())
+func add[T interface{ Name() string }](b *Builder, what string, m map[string]T, name string, v T) *Builder {
+	if _, dup := m[name]; dup && name != "base" {
+		b.fail("%s %q added twice", what, name)
 	}
-	m[v.Name()] = v
+	m[name] = v
 	return b
 }
 
 // AddSource adds a source under its Name.
-func (b *Builder) AddSource(s Source) *Builder { return add(b, "source", b.sources, s) }
+func (b *Builder) AddSource(s Source) *Builder { return add(b, "source", b.sources, s.Name(), s) }
 
 // AddFilter adds a filter under its Name.
-func (b *Builder) AddFilter(f Filter) *Builder { return add(b, "filter", b.filters, f) }
+func (b *Builder) AddFilter(f Filter) *Builder { return add(b, "filter", b.filters, f.Name(), f) }
 
 // AddKind adds a kind under its Name.
-func (b *Builder) AddKind(k Kind) *Builder { return add(b, "kind", b.kinds, k) }
+func (b *Builder) AddKind(k Kind) *Builder { return add(b, "kind", b.kinds, k.Name(), k) }
 
 // AddUI adds a UI under its Name.
-func (b *Builder) AddUI(u UI) *Builder { return add(b, "ui", b.uis, u) }
+func (b *Builder) AddUI(u UI) *Builder { return add(b, "ui", b.uis, u.Name(), u) }
+
+// AddSourceAs adds a source under another name, as ddu.vim's aliases
+// (setAlias): its options and params are those of that name.
+//
+//	b.AddSourceAs("filegit", fileexternal.New(fileexternal.Params{
+//		Cmd: []string{"git", "ls-files", "-co", "--exclude-standard"},
+//	}))
+func (b *Builder) AddSourceAs(name string, s Source) *Builder {
+	return add(b, "source", b.sources, name, s)
+}
+
+// AddFilterAs adds a filter under another name.
+func (b *Builder) AddFilterAs(name string, f Filter) *Builder {
+	return add(b, "filter", b.filters, name, f)
+}
+
+// AddActionAlias makes alias another name of the action base, for every
+// kind that has base (ddu.vim's setAlias("_", "action", alias, base)). The
+// options and params of an action are those of the name it is called by.
+func (b *Builder) AddActionAlias(alias, base string) *Builder {
+	b.actionAliases[alias] = base
+	return b
+}
 
 // PatchGlobal merges o into the options of every session.
 func (b *Builder) PatchGlobal(o Options) *Builder {

@@ -10,6 +10,7 @@ package ff
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -33,6 +34,10 @@ type Params struct {
 	MaxHighlightItems int `json:"maxHighlightItems"`
 	// DisplaySourceName: "no", "short" or "long".
 	DisplaySourceName string `json:"displaySourceName"`
+	// DisplayTree is accepted; trees are not shown yet.
+	DisplayTree bool `json:"displayTree"`
+	// AutoResize: the window is no higher than its items (horizontal).
+	AutoResize bool `json:"autoResize"`
 	// Reversed: the first item at the bottom.
 	Reversed bool `json:"reversed"`
 	// IgnoreEmpty: no window when the sources gathered nothing.
@@ -51,24 +56,95 @@ type Params struct {
 	PreviewWidth  any    `json:"previewWidth"`
 	// PreviewMaxSize: larger files are not previewed.
 	PreviewMaxSize int `json:"previewMaxSize"`
+	// PreviewFloating: the preview in a floating window (Neovim) or a
+	// popup (Vim), beside the window of the items (or at PreviewRow,
+	// PreviewCol).
+	PreviewFloating         bool   `json:"previewFloating"`
+	PreviewFloatingBorder   any    `json:"previewFloatingBorder"`
+	PreviewFloatingTitle    any    `json:"previewFloatingTitle"`
+	PreviewFloatingTitlePos string `json:"previewFloatingTitlePos"`
+	PreviewFloatingZindex   int    `json:"previewFloatingZindex"`
+	PreviewRow              any    `json:"previewRow"`
+	PreviewCol              any    `json:"previewCol"`
+	// OnPreview is a Vim function called after a preview with
+	// {previewWinId, lineNr} ("normal! zt" there, say).
+	OnPreview string `json:"onPreview"`
+
+	// Split "floating" (Neovim; Vim splits horizontally): the window is
+	// at WinRow, WinCol (expressions may use uiParams).
+	WinRow           any    `json:"winRow"`
+	WinCol           any    `json:"winCol"`
+	FloatingBorder   any    `json:"floatingBorder"`
+	FloatingTitle    any    `json:"floatingTitle"`
+	FloatingTitlePos string `json:"floatingTitlePos"`
+	// FloatingBlend is the 'winblend' of the floating windows.
+	FloatingBlend int `json:"floatingBlend"`
+
+	// AutoAction is the UI action run when the cursor moves to another
+	// item ({name: "preview"}), once StartAutoAction or the action
+	// toggleAutoAction enabled it.
+	AutoAction      AutoAction `json:"autoAction"`
+	StartAutoAction bool       `json:"startAutoAction"`
+}
+
+// AutoAction is the param autoAction.
+type AutoAction struct {
+	Name   string    `json:"name,omitempty"`
+	Params fi.Params `json:"params,omitempty"`
+	// Delay in milliseconds (100).
+	Delay *int `json:"delay,omitempty"`
+	// Sync is accepted for ddu-ui-ff's configurations; actions are
+	// always run in order.
+	Sync *bool `json:"sync,omitempty"`
 }
 
 // DefaultParams are those of ddu-ui-ff.
 func DefaultParams() Params {
 	return Params{
-		Split:               "horizontal",
-		SplitDirection:      "botright",
-		WinHeight:           20,
-		WinWidth:            "&columns / 2",
-		MaxDisplayItems:     1000,
-		MaxHighlightItems:   100,
-		DisplaySourceName:   "no",
-		OverwriteStatusline: true,
-		PreviewSplit:        "horizontal",
-		PreviewHeight:       10,
-		PreviewWidth:        80,
-		PreviewMaxSize:      1000000,
+		Split:                   "horizontal",
+		SplitDirection:          "botright",
+		WinHeight:               20,
+		WinWidth:                "&columns / 2",
+		MaxDisplayItems:         1000,
+		MaxHighlightItems:       100,
+		DisplaySourceName:       "no",
+		OverwriteStatusline:     true,
+		PreviewSplit:            "horizontal",
+		PreviewHeight:           10,
+		PreviewWidth:            80,
+		PreviewMaxSize:          1000000,
+		PreviewFloatingBorder:   "none",
+		PreviewFloatingTitle:    "",
+		PreviewFloatingTitlePos: "left",
+		PreviewFloatingZindex:   100,
+		PreviewRow:              0,
+		PreviewCol:              0,
+		WinRow:                  "&lines / 2 - 10",
+		WinCol:                  "(&columns - eval(uiParams.winWidth)) / 2",
+		FloatingBorder:          "none",
+		FloatingTitle:           "",
+		FloatingTitlePos:        "left",
 	}
+}
+
+// vimParams are the params as Vim sees them (the JSON names), and extra.
+func vimParams(p Params, extra map[string]any) map[string]any {
+	b, _ := json.Marshal(p)
+	m := map[string]any{}
+	_ = json.Unmarshal(b, &m)
+	if m["autoAction"] != nil {
+		aa := m["autoAction"].(map[string]any)
+		if _, ok := aa["delay"]; !ok {
+			aa["delay"] = 100
+		}
+		if _, ok := aa["params"]; !ok {
+			aa["params"] = map[string]any{}
+		}
+	}
+	for k, v := range extra {
+		m[k] = v
+	}
+	return m
 }
 
 // UI is the ff UI. One serves every session.
@@ -183,20 +259,14 @@ func (u *UI) Redraw(ctx context.Context, h sdk.Host, v *fi.View) error {
 		Input:      v.Context.Input,
 		PrevWinID:  v.Context.WinID,
 		Done:       v.Context.Done,
-		Params: map[string]any{
-			"split":               p.Split,
-			"splitDirection":      p.SplitDirection,
-			"winHeight":           p.WinHeight,
-			"winWidth":            p.WinWidth,
-			"reversed":            p.Reversed,
-			"overwriteStatusline": p.OverwriteStatusline,
-			"previewSplit":        p.PreviewSplit,
-			"previewHeight":       p.PreviewHeight,
-			"previewWidth":        p.PreviewWidth,
-			"filterPrompt":        derefString(v.UIOptions.FilterPrompt),
-			"filterUpdateMax":     derefInt(v.UIOptions.FilterUpdateMax),
-			"itemCount":           len(v.Items),
-		},
+		Params: vimParams(p, map[string]any{
+			"filterPrompt":         derefString(v.UIOptions.FilterPrompt),
+			"filterUpdateMax":      derefInt(v.UIOptions.FilterUpdateMax),
+			"filterInputFunc":      v.UIOptions.FilterInputFunc,
+			"filterInputOptsFunc":  v.UIOptions.FilterInputOptsFunc,
+			"filterUpdateCallback": v.UIOptions.FilterUpdateCallback,
+			"itemCount":            len(v.Items),
+		}),
 	}
 	selected := p.Highlights["selected"]
 	if selected == "" {
@@ -379,10 +449,11 @@ func redraw(_ context.Context, _ sdk.Host, a fi.UIActionArgs) (fi.ActionFlags, e
 // preview shows the preview of the item under the cursor in the preview
 // window, or closes it ({toggle: true} when it shows that item).
 func preview(ctx context.Context, h sdk.Host, a fi.UIActionArgs) (fi.ActionFlags, error) {
+	// The other params are the kind's (previewCmds, ...).
 	var p struct {
 		Toggle bool `json:"toggle"`
 	}
-	if err := fi.Decode(a.ActionParams, &p); err != nil {
+	if err := sdk.Decode(a.ActionParams, &p); err != nil {
 		return fi.None, err
 	}
 	name := a.View.Context.Name
@@ -402,12 +473,9 @@ func preview(ctx context.Context, h sdk.Host, a fi.UIActionArgs) (fi.ActionFlags
 		_, err := h.Call(ctx, "goda_fi#ui#ff#_close_preview", name)
 		return fi.None, err
 	}
-	_, err = h.Call(ctx, "goda_fi#ui#ff#_preview", name, a.Item.ID(), pv, map[string]any{
-		"toggle":        p.Toggle,
-		"previewSplit":  up.PreviewSplit,
-		"previewHeight": up.PreviewHeight,
-		"previewWidth":  up.PreviewWidth,
-		"maxSize":       up.PreviewMaxSize,
-	})
+	_, err = h.Call(ctx, "goda_fi#ui#ff#_preview", name, a.Item.ID(), pv, vimParams(up, map[string]any{
+		"toggle":  p.Toggle,
+		"maxSize": up.PreviewMaxSize,
+	}))
 	return fi.None, err
 }

@@ -14,6 +14,7 @@ UI ff			|goda-fi-ui-ff|
 Sources			|goda-fi-sources|
 Filters			|goda-fi-filters|
 Kinds			|goda-fi-kinds|
+Aliases			|goda-fi-aliases|
 Events			|goda-fi-events|
 Extensions		|goda-fi-extensions|
 Differences from ddu.vim	|goda-fi-ddu|
@@ -211,7 +212,13 @@ filterParams	By filter name: the params of the filters.
 kindOptions	By kind name: defaultAction, actions (other names of
 		actions: {"o": "open"}).
 kindParams	By kind name.
-uiOptions	By UI name: filterPrompt, filterUpdateMax, persist, toggle.
+uiOptions	By UI name: defaultAction (the item action of itemAction
+		without a name, before those of the source and the kind),
+		filterInputFunc ("input"; "cmdline#input", say),
+		filterInputOptsFunc (Neovim: takes input()'s options),
+		filterUpdateCallback (a function of the input typed, that
+		returns what filters), filterPrompt, filterUpdateMax,
+		persist, toggle.
 uiParams	By UI name: the params of the UI (|goda-fi-ui-ff-params|).
 actionOptions	By action name: quit (v:true).
 actionParams	By action name: the params of the actions.
@@ -235,23 +242,60 @@ ui/ff, as ddu-ui-ff: the items in a buffer ("goda-fi-ff-{name}", filetype
 
 PARAMS                                                  *goda-fi-ui-ff-params*
 
-split			"horizontal" (default), "vertical", "tab" or "no".
+Sizes and places are numbers or expressions of Vim, where uiParams are the
+params ("(&columns - eval(uiParams.winWidth)) / 2").
+
+split			"horizontal" (default), "vertical", "floating"
+			(Neovim; Vim splits horizontally, as ddu-ui-ff),
+			"tab" or "no".
 splitDirection		"botright" (default), "topleft", "belowright",
 			"aboveleft".
-winHeight		20; a number or an expression ("&lines / 3").
+winHeight		20.
 winWidth		"&columns / 2".
+winRow			"&lines / 2 - 10": of a floating window.
+winCol			"(&columns - eval(uiParams.winWidth)) / 2".
+floatingBorder		"none": the border of the floating windows, as
+			|nvim_open_win()|'s.
+floatingTitle		"".
+floatingTitlePos	"left".
+floatingBlend		0: their 'winblend'.
+autoResize		The window is no higher than its items.
 maxDisplayItems		1000: the lines of the buffer.
 maxHighlightItems	100: the items whose highlights are drawn.
 displaySourceName	"no", "short" or "long".
+displayTree		Accepted; trees are not shown yet.
 reversed		The first item at the bottom.
 ignoreEmpty		No window without items.
 cursorPos		The line of the cursor when it opens.
-highlights		{"selected": "Statement"}.
+highlights		Groups: "selected" (Statement), "floating"
+			(NormalFloat), "floatingBorder" (FloatBorder),
+			"floatingCursorLine" (CursorLine).
 overwriteStatusline	v:true: the name, the counts, the input.
+autoAction		{name, params, delay (100)}: the UI action run when
+			the cursor is on another item ({"name": "preview"}),
+			once enabled by startAutoAction or toggleAutoAction.
+startAutoAction		Enable autoAction when the window opens.
 previewSplit		"horizontal" (default), "vertical" or "no".
 previewHeight		10.
 previewWidth		80.
 previewMaxSize		1000000: larger files are not previewed.
+previewFloating		The preview in a floating window (Neovim) or a popup
+			(Vim), beside the window of the items.
+previewFloatingBorder	"none".
+previewFloatingTitle	"".
+previewFloatingTitlePos	"left".
+previewFloatingZindex	100.
+previewRow		0: where the floating preview goes, when not 0.
+previewCol		0.
+onPreview		"": a Vim function called after a preview with
+			{previewWinId, lineNr} (ddu-ui-ff's onPreview, as the
+			name of a function): >vim
+			function! MyOnPreview(args) abort
+			  call win_execute(a:args.previewWinId, 'normal! zt')
+			endfunction
+<
+Params a configuration of ddu-ui-ff has that are not here are errors
+(filterSplitDirection, updateTime...): leave them out.
 
 ACTIONS                                                *goda-fi-ui-ff-actions*
 
@@ -265,6 +309,8 @@ cursorNext		Moves the cursor down params.count (1) lines;
 			params.loop goes around.
 cursorPrevious		The same, up.
 openFilterWindow	Types the filter in the command line; params.prompt.
+toggleAutoAction	Enables autoAction, or disables it (and closes the
+			preview).
 preview			Shows the item under the cursor in the preview
 			window (params.toggle: closes it when it shows that
 			item).
@@ -274,11 +320,15 @@ quit			Closes the window.
 ==============================================================================
 SOURCES                                                      *goda-fi-sources*
 
+ddu.vim's names lose their "_": "file_rec" is "filerec".
+
 file		ext/source/file (ddu-source-file): the files of a
 		directory. Params: ignoreDirectories, new.
 filerec		ext/source/filerec (ddu-source-file_rec): the files under
 		a directory. Params: chunkSize (1000), ignoredDirectories
 		([".git"]), expandSymbolicLink.
+fileold		ext/source/fileold (ddu-source-file_old): v:oldfiles,
+		the viminfo or ShaDa read again first.
 buffer		ext/source/buffer (ddu-source-buffer): the listed buffers
 		of files, the alternate one first.
 filepoint	ext/source/filepoint (ddu-source-file_point): the file
@@ -287,6 +337,19 @@ filepoint	ext/source/filepoint (ddu-source-file_point): the file
 fileexternal	ext/source/fileexternal (ddu-source-file_external): the
 		files a command lists. Params: cmd (["fd", "-t", "f"]),
 		updateItems.
+rg		ext/source/rg (ddu-source-rg): what ripgrep finds. Params:
+		input (the pattern; the input when the source is
+		volatile), args (["--column", "--no-heading", "--color",
+		"never"]; with "--json" its JSON is read), category (a
+		line of each file before its matches), cmd ("rg"), globs,
+		highlights ({path, lineNr, word}), maxEnqueSize (10000),
+		minVolatileInputLength (2), paths. inputType "migemo" is not
+		supported.
+line		ext/source/line (ddu-source-line): the lines of the
+		buffer, from the cursor line. Params: bufNr,
+		ignoreEmptyInput, range ("buffer" or "window"), winId.
+register	ext/source/register (ddu-source-register): the registers
+		that are not empty, of the kind "word".
 
 The directory is sourceOptions.path, or the current one.
 
@@ -299,6 +362,22 @@ matchersubstring	ext/filter/matchersubstring
 			"^word" is a prefix, "word$" a suffix, "\ " a space.
 			Params: highlightMatched (""), limit (1000),
 			maxLength (500).
+matcherhidden		ext/filter/matcherhidden
+			(ddu-filter-matcher_hidden): no hidden files, unless
+			the input has a ".".
+matcherrelative		ext/filter/matcherrelative
+			(ddu-filter-matcher_relative): only the files under
+			the directory of the source.
+matcherfiles		ext/filter/matcherfiles (ddu-filter-matcher_files):
+			only the paths of params.globs or params.patterns.
+sorteralpha		ext/filter/sorteralpha (ddu-filter-sorter_alpha): by
+			word.
+sortermtime		ext/filter/sortermtime (ddu-filter-sorter_mtime): the
+			files changed last first.
+converterhldir		ext/filter/converterhldir
+			(ddu-filter-converter_hl_dir): the directories of
+			the path highlighted. Params: hlGroup ("Directory",
+			or a list used by turns).
 
 ==============================================================================
 KINDS                                                          *goda-fi-kinds*
@@ -307,6 +386,25 @@ file		ext/kind/file (ddu-kind-file). Actions: open (params:
 		command "edit", maxSize), append, insert, cd, execute
 		(params: command), feedkeys, loclist, quickfix, yank.
 		Previews files and buffers.
+word		ext/kind/word (ddu-kind-word). Actions: append, insert,
+		feedkeys, yank. Previews the text.
+
+==============================================================================
+ALIASES                                                      *goda-fi-aliases*
+
+As ddu.vim's setAlias(), in the configuration (main.go):
+>go
+	// A source of another name, with params of its own:
+	// "file_git" of ddu.vim.
+	b.AddSourceAs("filegit", fileexternal.New(fileexternal.Params{
+		Cmd: []string{"git", "ls-files", "-co", "--exclude-standard"},
+	}))
+	b.AddFilterAs("matcherignorecurrentbuffer", ...)
+	// setAlias("_", "action", "tabopen", "open"): for every kind.
+	b.AddActionAlias("tabopen", "open")
+<
+The options and params of an alias are those of its name. kindOptions
+.actions are aliases of the actions of one kind.
 
 ==============================================================================
 EVENTS                                                        *goda-fi-events*
@@ -350,8 +448,9 @@ DIFFERENCES FROM DDU.VIM                                         *goda-fi-ddu*
   loaded at run time. Their names lose the "_" ("file_rec" is "filerec").
 - Moving the cursor and the filter are done in Vim; actions and drawing in
   Go, with versions (|goda-fi-introduction|).
-- Not yet: floating windows, trees, the filer, columns, sorters and
-  converters of this repository, autoAction, chooseAction, actions as Vim
-  functions (kindOptions.actions are other names of actions).
+- Not yet: floating windows in Vim (the preview is a popup), trees, the
+  filer, columns, chooseAction, actions as Vim functions
+  (kindOptions.actions are other names of actions), Vim side aliases
+  (ddu#custom#alias()), ddu#ui#save_cmaps().
 
 vim:tw=78:ts=8:noet:ft=help:norl:

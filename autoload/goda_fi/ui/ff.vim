@@ -26,12 +26,17 @@ function! s:st(name) abort
           \ 'preview_id': 0,
           \ 'sent': v:null,
           \ 'keep_row': 0,
+          \ 'auto_enabled': v:false,
+          \ 'auto_id': 0,
+          \ 'auto_timer': -1,
           \ }
   endif
   return s:state[a:name]
 endfunction
 
-function! s:eval(v) abort
+" A size: a number, or an expression of Vim (uiParams are the params).
+function! s:eval(v, uiParams = {}) abort
+  let uiParams = a:uiParams
   return type(a:v) == v:t_string ? eval(a:v) : a:v
 endfunction
 
@@ -84,6 +89,9 @@ function! s:redraw(name, r) abort
 
   if winid > 0
     let n = len(a:r.lines)
+    if a:r.params.autoResize
+      call s:auto_resize(winid, n, a:r.params)
+    endif
     if a:r.cursor > 0
       let row = a:r.cursor
     elseif a:r.reset && st.keep_row > 0
@@ -112,6 +120,9 @@ function! s:redraw(name, r) abort
     endif
   endif
 
+  if a:r.open
+    call s:set_auto_action(a:name, bufnr, a:r.params)
+  endif
   if opened
     call goda_fi#util#doautocmd('GodaFi:uiReady')
   endif
@@ -122,6 +133,8 @@ function! s:redraw(name, r) abort
   call goda_fi#util#doautocmd('GodaFi:uiRedraw')
   " Needed while the filter is typed (and harmless otherwise).
   redraw
+  " The item under the cursor may be another one.
+  call s:auto_action(a:name, 0)
 endfunction
 
 function! s:escape(s) abort
@@ -153,24 +166,33 @@ function! s:buffer(name) abort
   return bufnr
 endfunction
 
+" The split of the params: "floating" is for Neovim (Vim splits
+" horizontally, as ddu-ui-ff).
+function! s:split(p) abort
+  return a:p.split ==# 'floating' && !has('nvim') ? 'horizontal' : a:p.split
+endfunction
+
 function! s:open_window(name, bufnr, p) abort
   let st = s:st(a:name)
-  if a:p.split ==# 'tab'
+  let split = s:split(a:p)
+  if split ==# 'tab'
     tabnew
     let st.prev_bufnr = bufnr('%')
     execute 'silent keepalt buffer' a:bufnr
-  elseif a:p.split ==# 'no'
+  elseif split ==# 'no'
     let st.prev_bufnr = bufnr('%')
     execute 'silent keepalt buffer' a:bufnr
-  elseif a:p.split ==# 'vertical'
+  elseif split ==# 'floating'
+    call s:open_float(a:bufnr, a:p)
+  elseif split ==# 'vertical'
     execute 'silent' a:p.splitDirection 'vertical split'
     execute 'silent keepalt buffer' a:bufnr
-    execute 'vertical resize' s:eval(a:p.winWidth)
+    execute 'vertical resize' s:eval(a:p.winWidth, a:p)
     setlocal winfixwidth
   else
     execute 'silent' a:p.splitDirection 'split'
     execute 'silent keepalt buffer' a:bufnr
-    execute 'resize' s:eval(a:p.winHeight)
+    execute 'resize' s:eval(a:p.winHeight, a:p)
     setlocal winfixheight
   endif
   setlocal nowrap nolist nonumber norelativenumber nospell
@@ -180,6 +202,41 @@ function! s:open_window(name, bufnr, p) abort
     setlocal filetype=goda-fi-ff
   endif
   return win_getid()
+endfunction
+
+" The window of the items as a float of Neovim, entered.
+function! s:open_float(bufnr, p) abort
+  let opts = {
+        \ 'relative': 'editor',
+        \ 'row': s:eval(a:p.winRow, a:p),
+        \ 'col': s:eval(a:p.winCol, a:p),
+        \ 'width': max([1, s:eval(a:p.winWidth, a:p)]),
+        \ 'height': max([1, s:eval(a:p.winHeight, a:p)]),
+        \ 'border': a:p.floatingBorder,
+        \ }
+  if !empty(a:p.floatingTitle)
+    let opts.title = a:p.floatingTitle
+    let opts.title_pos = a:p.floatingTitlePos
+  endif
+  call nvim_open_win(a:bufnr, v:true, opts)
+  let &l:winblend = a:p.floatingBlend
+  let hl = get(a:p, 'highlights', {})
+  let &l:winhighlight = join([
+        \ 'Normal:' . get(hl, 'floating', 'NormalFloat'),
+        \ 'FloatBorder:' . get(hl, 'floatingBorder', 'FloatBorder'),
+        \ 'CursorLine:' . get(hl, 'floatingCursorLine', 'CursorLine'),
+        \ ], ',')
+endfunction
+
+" No higher than the items (autoResize).
+function! s:auto_resize(winid, n, p) abort
+  let height = max([1, min([a:n, s:eval(a:p.winHeight, a:p)])])
+  let split = s:split(a:p)
+  if split ==# 'floating'
+    call nvim_win_set_config(a:winid, {'height': height})
+  elseif split ==# 'horizontal'
+    call win_execute(a:winid, 'resize ' . height)
+  endif
 endfunction
 
 function! s:set_lines(bufnr, lines) abort
@@ -323,6 +380,15 @@ function! goda_fi#ui#ff#_local_action(name, action, params) abort
     call s:move(a:name, -get(a:params, 'count', 1), get(a:params, 'loop', v:false))
   elseif a:action ==# 'openFilterWindow'
     call s:open_filter(a:name, a:params)
+  elseif a:action ==# 'toggleAutoAction'
+    let st = s:st(a:name)
+    let st.auto_enabled = !st.auto_enabled
+    let st.auto_id = 0
+    if st.auto_enabled
+      call s:auto_action(a:name, 1)
+    else
+      call s:close_preview(st)
+    endif
   else
     return 0
   endif
@@ -349,6 +415,8 @@ function! s:move(name, count, loop) abort
   endif
   " The cursor of another window moved, or the screen of the filter.
   redraw
+  " CursorMoved is not for another window, or in the command line.
+  call s:auto_action(a:name, 1)
 endfunction
 
 " The filter: input() in the command line, every change filtering (unless
@@ -361,14 +429,22 @@ function! s:open_filter(name, params) abort
   augroup goda-fi-filter
     autocmd!
     if max <= 0 || get(st.params, 'itemCount', 0) <= max
-      autocmd CmdlineChanged @ call s:filter_update(getcmdline())
+      autocmd CmdlineChanged * call s:filter_update(getcmdline())
     endif
   augroup END
   call goda_fi#util#doautocmd('GodaFi:uiOpenFilterWindow')
   redraw
   let prompt = get(a:params, 'prompt', get(st.params, 'filterPrompt', ''))
+  let s:filter_callback = get(st.params, 'filterUpdateCallback', '')
+  let func = get(st.params, 'filterInputFunc', '')
+  let opts_func = get(st.params, 'filterInputOptsFunc', '')
   try
-    if has('nvim')
+    if has('nvim') && opts_func !=# ''
+      let input = call(opts_func, [{'prompt': prompt, 'default': st.input,
+            \ 'cancelreturn': st.input}])
+    elseif func !=# '' && func !=# 'input'
+      let input = call(func, [prompt, st.input, ''])
+    elseif has('nvim')
       let input = input({'prompt': prompt, 'default': st.input, 'cancelreturn': st.input})
     else
       let input = input(prompt, st.input)
@@ -383,14 +459,61 @@ function! s:open_filter(name, params) abort
 endfunction
 
 function! s:filter_update(input) abort
-  if a:input ==# s:filter_prev
+  let input = get(s:, 'filter_callback', '') ==# '' ? a:input
+        \ : call(s:filter_callback, [a:input])
+  if input ==# s:filter_prev
     return
   endif
-  let s:filter_prev = a:input
+  let s:filter_prev = input
   let st = s:st(s:filter_name)
-  let st.sent = a:input
+  let st.sent = input
   let st.keep_row = 0
-  call goda_fi#redraw(s:filter_name, {'input': a:input})
+  call goda_fi#redraw(s:filter_name, {'input': input})
+endfunction
+
+" ---------------------------------------------------------------------------
+" autoAction: a UI action run when the cursor is on another item (the
+" preview, say), once enabled by startAutoAction or toggleAutoAction.
+
+function! s:set_auto_action(name, bufnr, p) abort
+  let st = s:st(a:name)
+  " Every time the window opens, as ddu-ui-ff at a start.
+  let st.auto_enabled = a:p.startAutoAction ? v:true : v:false
+  let st.auto_id = 0
+  execute 'augroup goda-fi-ff-auto-' . a:bufnr
+    autocmd!
+    if get(a:p.autoAction, 'name', '') !=# ''
+      execute 'autocmd CursorMoved <buffer=' . a:bufnr . '> call s:auto_action('
+            \ . string(a:name) . ', 0)'
+    endif
+  augroup END
+endfunction
+
+" Run the autoAction after its delay (now: in the command line, where
+" timers wait).
+function! s:auto_action(name, now) abort
+  let st = s:st(a:name)
+  let aa = get(st.params, 'autoAction', {})
+  if !st.auto_enabled || get(aa, 'name', '') ==# '' || st.closed
+    return
+  endif
+  call timer_stop(st.auto_timer)
+  if a:now || mode() ==# 'c' || aa.delay <= 0
+    call s:do_auto_action(a:name)
+  else
+    let st.auto_timer = timer_start(aa.delay, {-> s:do_auto_action(a:name)})
+  endif
+endfunction
+
+function! s:do_auto_action(name) abort
+  let st = s:st(a:name)
+  let pos = goda_fi#ui#ff#_pos(a:name)
+  if pos.id == 0 || pos.id == st.auto_id || st.closed
+    return
+  endif
+  let st.auto_id = pos.id
+  let aa = st.params.autoAction
+  call goda_fi#ui#do_action(aa.name, get(aa, 'params', {}), a:name)
 endfunction
 
 " ---------------------------------------------------------------------------
@@ -400,41 +523,34 @@ function! goda_fi#ui#ff#_close_preview(name) abort
   call s:close_preview(s:st(a:name))
 endfunction
 
+" Is the preview window (a window, a float, a popup) there?
+function! s:preview_valid(winid) abort
+  if a:winid <= 0
+    return 0
+  endif
+  if has('nvim')
+    return nvim_win_is_valid(a:winid)
+  endif
+  return win_id2win(a:winid) > 0 || !empty(popup_getpos(a:winid))
+endfunction
+
 function! s:close_preview(st) abort
-  let nr = win_id2win(a:st.preview_winid)
-  if nr > 0
-    if winnr('$') > 1
-      execute 'silent!' nr . 'close!'
+  let winid = a:st.preview_winid
+  if s:preview_valid(winid)
+    if !has('nvim') && win_id2win(winid) <= 0
+      call popup_close(winid)
+    elseif has('nvim') && nvim_win_get_config(winid).relative !=# ''
+      call nvim_win_close(winid, v:true)
+    elseif winnr('$') > 1
+      execute 'silent!' win_id2win(winid) . 'close!'
     endif
   endif
   let a:st.preview_winid = -1
   let a:st.preview_id = 0
 endfunction
 
-" Show the previewer pv of the item id.
-function! goda_fi#ui#ff#_preview(name, id, pv, p) abort
+function! s:preview_buffer(name) abort
   let st = s:st(a:name)
-  if a:p.toggle && st.preview_id == a:id && win_id2win(st.preview_winid) > 0
-    call s:close_preview(st)
-    return
-  endif
-  let ffwin = bufwinid(st.bufnr)
-  if a:p.previewSplit ==# 'no' || ffwin < 0
-    return
-  endif
-  let [lines, path] = s:preview_lines(a:pv, a:p)
-
-  let cur = win_getid()
-  if win_id2win(st.preview_winid) <= 0
-    call win_gotoid(ffwin)
-    if a:p.previewSplit ==# 'vertical'
-      execute 'silent rightbelow' s:eval(a:p.previewWidth) . 'vsplit'
-    else
-      execute 'silent aboveleft' s:eval(a:p.previewHeight) . 'split'
-    endif
-    let st.preview_winid = win_getid()
-  endif
-  call win_gotoid(st.preview_winid)
   if !bufexists(st.preview_bufnr)
     let st.preview_bufnr = bufadd('goda-fi-preview-' . a:name)
     call setbufvar(st.preview_bufnr, '&buftype', 'nofile')
@@ -444,36 +560,160 @@ function! goda_fi#ui#ff#_preview(name, id, pv, p) abort
     call setbufvar(st.preview_bufnr, '&buflisted', 0)
     call setbufvar(st.preview_bufnr, '&undolevels', -1)
   endif
-  execute 'silent keepalt buffer' st.preview_bufnr
-  setlocal modifiable
-  silent %delete _
-  call setline(1, lines)
-  setlocal nomodifiable nomodified
-  setlocal previewwindow nowrap nonumber norelativenumber nolist nofoldenable
-  setlocal signcolumn=no foldcolumn=0
-  " Highlighted as what it shows.
-  let &l:syntax = get(a:pv, 'syntax', '')
-  if get(a:pv, 'filetype', '') !=# ''
-    let &l:filetype = a:pv.filetype
-  elseif path !=# ''
-    let &l:filetype = ''
-    execute 'silent! doautocmd filetypedetect BufRead' fnameescape(path)
-  else
-    let &l:filetype = ''
+  return st.preview_bufnr
+endfunction
+
+" Show the previewer pv of the item id.
+function! goda_fi#ui#ff#_preview(name, id, pv, p) abort
+  let st = s:st(a:name)
+  if a:p.toggle && st.preview_id == a:id && s:preview_valid(st.preview_winid)
+    call s:close_preview(st)
+    return
   endif
-  let lnum = get(a:pv, 'lineNr', 0)
-  if lnum > 0
-    call cursor(lnum, 1)
-    normal! zz
-  elseif get(a:pv, 'pattern', '') !=# ''
-    call search(a:pv.pattern, 'cw')
-    normal! zz
-  else
-    call cursor(1, 1)
+  let ffwin = bufwinid(st.bufnr)
+  if a:p.previewSplit ==# 'no' || ffwin < 0
+    return
   endif
+  let [lines, path] = s:preview_lines(a:pv, a:p)
+  let bufnr = s:preview_buffer(a:name)
+  call setbufvar(bufnr, '&modifiable', 1)
+  silent call deletebufline(bufnr, 1, '$')
+  call setbufline(bufnr, 1, empty(lines) ? [''] : lines)
+  call setbufvar(bufnr, '&modifiable', 0)
+  call setbufvar(bufnr, '&modified', 0)
+
+  let height = s:eval(a:p.previewHeight, a:p)
+  let floating = get(a:p, 'previewFloating', v:false)
+  if !s:preview_valid(st.preview_winid)
+    let st.preview_winid = floating
+          \ ? s:open_preview_float(ffwin, bufnr, a:p)
+          \ : s:open_preview_split(ffwin, bufnr, a:p)
+  elseif !has('nvim') && win_id2win(st.preview_winid) <= 0
+    " A popup of Vim shows its buffer already.
+  else
+    call win_execute(st.preview_winid, 'silent keepalt buffer ' . bufnr)
+  endif
+  let winid = st.preview_winid
   let st.preview_id = a:id
-  call win_gotoid(cur)
+
+  for opt in ['nowrap', 'nonumber', 'norelativenumber', 'nolist',
+        \ 'nofoldenable', 'signcolumn=no', 'foldcolumn=0', 'nocursorline']
+    call win_execute(winid, 'silent! setlocal ' . opt)
+  endfor
+  if win_id2win(winid) > 0 && !(has('nvim') && nvim_win_get_config(winid).relative !=# '')
+    call win_execute(winid, 'setlocal previewwindow')
+  endif
+  " Highlighted as what it shows.
+  call setbufvar(bufnr, '&syntax', get(a:pv, 'syntax', ''))
+  if get(a:pv, 'filetype', '') !=# ''
+    call setbufvar(bufnr, '&filetype', a:pv.filetype)
+  elseif path !=# ''
+    call setbufvar(bufnr, '&filetype', '')
+    call win_execute(winid, 'silent! doautocmd filetypedetect BufRead ' . fnameescape(path))
+  else
+    call setbufvar(bufnr, '&filetype', '')
+  endif
+
+  let lnum = get(a:pv, 'lineNr', 0)
+  if lnum <= 0 && get(a:pv, 'pattern', '') !=# ''
+    let lnum = max([1, match(lines, a:pv.pattern) + 1])
+  endif
+  let lnum = max([1, lnum])
+  if !has('nvim') && win_id2win(winid) <= 0
+    call popup_setoptions(winid, {'firstline': max([1, lnum - height / 2])})
+  else
+    call win_execute(winid, 'call cursor(' . lnum . ', 1)')
+    if lnum > 1
+      call win_execute(winid, 'normal! zz')
+    endif
+  endif
+  if get(a:p, 'onPreview', '') !=# ''
+    call call(a:p.onPreview, [{'previewWinId': winid, 'lineNr': lnum}])
+  endif
   redraw
+endfunction
+
+function! s:open_preview_split(ffwin, bufnr, p) abort
+  let cur = win_getid()
+  call win_gotoid(a:ffwin)
+  if a:p.previewSplit ==# 'vertical'
+    execute 'silent rightbelow vertical sbuffer' a:bufnr
+    setlocal winfixwidth
+    execute 'vertical resize' s:eval(a:p.previewWidth, a:p)
+  else
+    " No more than 4/10 of the screen.
+    let height = min([s:eval(a:p.previewHeight, a:p), &lines * 4 / 10])
+    execute 'silent aboveleft sbuffer' a:bufnr
+    setlocal winfixheight
+    execute 'resize' height
+  endif
+  let winid = win_getid()
+  call win_gotoid(cur)
+  return winid
+endfunction
+
+" A floating window (Neovim) or a popup (Vim) beside the window of the
+" items, as ddu-ui-ff's previewFloating.
+function! s:open_preview_float(ffwin, bufnr, p) abort
+  let width = s:eval(a:p.previewWidth, a:p)
+  let height = s:eval(a:p.previewHeight, a:p)
+  let row_param = s:eval(get(a:p, 'previewRow', 0), a:p)
+  let col_param = s:eval(get(a:p, 'previewCol', 0), a:p)
+  let border = get(a:p, 'previewFloatingBorder', 'none')
+  let [row, col] = win_screenpos(a:ffwin)
+  let row = row_param > 0 ? row_param : row - 1
+  let col = col_param > 0 ? col_param : col - 1
+  let anchor = 'NW'
+  if a:p.previewSplit ==# 'vertical'
+    if row_param <= 0 && row <= height
+      let col += winwidth(a:ffwin)
+      if col + width > &columns
+        let col -= width
+      endif
+    endif
+    if col_param <= 0 && border isnot# 'none'
+      let width -= 1
+    endif
+  else
+    if row_param <= 0 && border isnot# 'none'
+      let height -= 1
+    endif
+    if row_param <= 0 && row <= height
+      let row += winheight(a:ffwin) + 1
+    elseif has('nvim')
+      let anchor = 'SW'
+    else
+      let row -= height + 2
+    endif
+  endif
+  let width = max([1, width])
+  let height = max([1, height])
+  let title = get(a:p, 'previewFloatingTitle', '')
+  if has('nvim')
+    let opts = {'relative': 'editor', 'anchor': anchor, 'row': row, 'col': col,
+          \ 'width': width, 'height': height, 'border': border,
+          \ 'zindex': get(a:p, 'previewFloatingZindex', 100)}
+    if !empty(title)
+      let opts.title = title
+      let opts.title_pos = get(a:p, 'previewFloatingTitlePos', 'left')
+    endif
+    let winid = nvim_open_win(a:bufnr, v:false, opts)
+    call setwinvar(winid, '&winblend', get(a:p, 'floatingBlend', 0))
+    return winid
+  endif
+  let opts = {'pos': 'topleft', 'posinvert': v:false,
+        \ 'line': max([1, row + 1]), 'col': max([1, col + 1]),
+        \ 'minwidth': width, 'maxwidth': width,
+        \ 'minheight': height, 'maxheight': height,
+        \ 'highlight': 'Normal', 'scrollbar': 0, 'wrap': 0,
+        \ 'zindex': get(a:p, 'previewFloatingZindex', 100)}
+  if border isnot# 'none' && !empty(border)
+    let opts.border = []
+  endif
+  if type(title) == v:t_string && title !=# ''
+    let opts.title = title
+  endif
+  return popup_create(a:bufnr, opts)
 endfunction
 
 " The lines of a previewer, and the path they are of.

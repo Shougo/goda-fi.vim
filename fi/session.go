@@ -766,7 +766,11 @@ func (st *state) actionsOf(items []Item) (*actionSet, error) {
 		maps.Copy(set.actions, s.Actions())
 	}
 	ko := st.opts.kindOptions(kind)
-	set.aliases = ko.Actions
+	set.aliases = maps.Clone(st.e.b.actionAliases)
+	if set.aliases == nil {
+		set.aliases = map[string]string{}
+	}
+	maps.Copy(set.aliases, ko.Actions)
 	set.def = ko.DefaultAction
 	if src < len(st.opts.Sources) {
 		if d := st.opts.sourceOptions(src).DefaultAction; d != "" {
@@ -814,6 +818,9 @@ func (st *state) itemAction(ctx context.Context, name string, items []Item, para
 	}
 	if name == "" || name == "default" {
 		name = set.def
+		if d := st.opts.uiOptions().DefaultAction; d != "" {
+			name = d
+		}
 		if name == "" {
 			return fmt.Errorf("no default action for kind %q", set.kind)
 		}

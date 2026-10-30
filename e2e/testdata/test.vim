@@ -64,6 +64,35 @@ function! s:start(options) abort
   call goda_fi#start(a:options)
 endfunction
 
+" The lines of the preview: a window, a float or a popup.
+function! s:preview_lines() abort
+  if has('nvim')
+    for w in nvim_list_wins()
+      if nvim_win_get_config(w).relative !=# '' || getwinvar(w, '&previewwindow')
+        if bufname(winbufnr(w)) =~# '^goda-fi-preview'
+          return getbufline(winbufnr(w), 1, '$')
+        endif
+      endif
+    endfor
+    return []
+  endif
+  for w in popup_list() + range(1, winnr('$'))->map('win_getid(v:val)')
+    if bufname(winbufnr(w)) =~# '^goda-fi-preview'
+      return getbufline(winbufnr(w), 1, '$')
+    endif
+  endfor
+  return []
+endfunction
+
+" The filter of filterInputFunc: "@deep" ("@" taken off by the callback).
+function! MyInput(prompt, text, completion) abort
+  return '@deep'
+endfunction
+
+function! MyCallback(input) abort
+  return a:input[0] ==# '@' ? a:input[1:] : a:input
+endfunction
+
 let s:all = ['a.txt', 'b.go', 'msg.log', 'sub/c.txt', 'sub/deep/d.md']
 
 function! s:run() abort
@@ -188,6 +217,111 @@ function! s:run() abort
   call s:check('pop', s:wait_lines('pp', ['a.txt', 'b.go', 'msg.log', 'sub/']),
         \ ['a.txt', 'b.go', 'msg.log', 'sub/'])
   call s:check('pop window', [winnr('$'), bufnr('%')], [2, s:buf('pp')])
+  call goda_fi#ui#do_action('quit')
+
+  " rg: the matches, opened at their line.
+  if executable('rg')
+    call s:start({'name': 'rg', 'sources': [{'name': 'rg', 'params': {'input': 'words'}}]})
+    call s:check('rg', s:wait_lines('rg', ['sub/c.txt:2:5: two words']), ['sub/c.txt:2:5: two words'])
+    call goda_fi#ui#do_action('itemAction')
+    call s:check('rg open', [s:rel('%'), line('.'), col('.')], ['sub/c.txt', 2, 5])
+    " Volatile: searched again as the input changes.
+    call s:start({'name': 'rg', 'sources': ['rg'],
+          \ 'sourceOptions': {'rg': {'volatile': v:true}}})
+    call goda_fi#redraw('rg', {'input': 'three'})
+    call s:check('rg volatile', s:wait_lines('rg', ['sub/c.txt:3:1: three']), ['sub/c.txt:3:1: three'])
+    call goda_fi#ui#do_action('quit')
+  endif
+
+  " line: from the cursor line, then the lines before.
+  edit sub/c.txt
+  call cursor(2, 1)
+  call s:start({'name': 'line', 'sources': ['line']})
+  call s:check('line', s:wait_lines('line', ['2: two words', '3: three', '1: one']),
+        \ ['2: two words', '3: three', '1: one'])
+  call goda_fi#redraw('line', {'input': 'thr'})
+  call s:wait_lines('line', ['3: three'])
+  call goda_fi#ui#do_action('itemAction')
+  call s:check('line open', [s:rel('%'), line('.')], ['sub/c.txt', 3])
+
+  " register: appended where the session was started.
+  enew!
+  call setreg('a', 'hello', 'v')
+  call s:start({'name': 'reg', 'sources': ['register'], 'input': 'hello'})
+  call s:wait('register', {-> index(s:lines('reg'), 'a: hello') >= 0})
+  execute index(s:lines('reg'), 'a: hello') + 1
+  call goda_fi#ui#do_action('itemAction')
+  call s:check('register append', getline(1), 'hello')
+  normal! 0
+  " uiOptions.defaultAction goes before that of the kind.
+  call s:start({'name': 'reg', 'sources': ['register'], 'input': 'hello',
+        \ 'uiOptions': {'ff': {'defaultAction': 'insert'}}})
+  call s:wait('register 2', {-> s:shown('reg') && bufnr('%') == s:buf('reg')
+        \ && index(s:lines('reg'), 'a: hello') >= 0})
+  execute index(s:lines('reg'), 'a: hello') + 1
+  call goda_fi#ui#do_action('itemAction')
+  call s:check('ui defaultAction', getline(1), 'hellohello')
+  enew!
+
+  " An alias: its own params (ls), its own options.
+  call s:start({'name': 'alias', 'sources': ['filels'],
+        \ 'sourceOptions': {'filels': {'matchers': ['matcherhidden'],
+        \   'sorters': ['sorteralpha'], 'converters': ['converterhldir']}}})
+  if !has('win32')
+    call s:check('alias', s:wait_lines('alias', ['a.txt', 'b.go', 'msg.log', 'sub/']),
+          \ ['a.txt', 'b.go', 'msg.log', 'sub/'])
+    call goda_fi#ui#do_action('itemAction', {'name': 'tabopen'})
+    call s:check('action alias', [tabpagenr('$'), s:rel('%')], [2, 'a.txt'])
+    tabclose
+  endif
+  call goda_fi#ui#do_action('quit', {}, 'alias')
+
+  " fileold: v:oldfiles.
+  let v:oldfiles = [fnamemodify('b.go', ':p'), '/no/such/file']
+  call s:start({'name': 'old', 'sources': ['fileold']})
+  call s:check('fileold', s:wait_lines('old', ['b.go']), ['b.go'])
+  call goda_fi#ui#do_action('quit')
+
+  " autoResize, and autoAction: the preview follows the cursor.
+  call s:start({'name': 'auto', 'sources': ['file'], 'uiParams': {'ff': {
+        \ 'autoResize': v:true, 'startAutoAction': v:true,
+        \ 'autoAction': {'name': 'preview', 'delay': 0}}}})
+  call s:wait_lines('auto', ['a.txt', 'b.go', 'msg.log', 'sub/'])
+  call s:check('autoResize', winheight(0), 4)
+  call s:wait('autoAction', {-> s:preview_lines() ==# ['a']})
+  call s:check('autoAction', s:preview_lines(), ['a'])
+  call goda_fi#ui#do_action('cursorNext')
+  call s:wait('autoAction next', {-> s:preview_lines() ==# ['package b']})
+  call s:check('autoAction next', s:preview_lines(), ['package b'])
+  call goda_fi#ui#do_action('toggleAutoAction')
+  call s:check('toggleAutoAction', s:preview_lines(), [])
+  call goda_fi#ui#do_action('quit')
+
+  " The preview floating (a float of Neovim, a popup of Vim).
+  call s:start({'name': 'float', 'sources': ['file'],
+        \ 'uiParams': {'ff': {'previewFloating': v:true, 'previewFloatingBorder': 'single'}}})
+  call s:wait_lines('float', ['a.txt', 'b.go', 'msg.log', 'sub/'])
+  call goda_fi#ui#do_action('preview')
+  call s:check('preview floating', s:preview_lines(), ['a'])
+  call goda_fi#ui#do_action('preview', {'toggle': v:true})
+  call s:check('preview toggled', s:preview_lines(), [])
+  call goda_fi#ui#do_action('quit')
+
+  " split floating: Neovim only (Vim splits).
+  call s:start({'name': 'float', 'sources': ['file'], 'uiParams': {'ff': {'split': 'floating'}}})
+  call s:wait('float open', {-> bufnr('%') == s:buf('float')})
+  call s:check('floating', has('nvim') ? nvim_win_get_config(0).relative : 'editor', 'editor')
+  call s:check('floating focus', bufnr('%'), s:buf('float'))
+  call goda_fi#ui#do_action('quit')
+  call s:check('floating closed', s:shown('float'), v:false)
+
+  " filterInputFunc and filterUpdateCallback.
+  call s:start({'name': 'rec', 'sources': ['filerec'], 'uiOptions': {'ff': {
+        \ 'filterInputFunc': 'MyInput', 'filterInputOptsFunc': '',
+        \ 'filterUpdateCallback': 'MyCallback'}}})
+  call s:wait_lines('rec', s:all)
+  call goda_fi#ui#do_action('openFilterWindow')
+  call s:check('filterInputFunc', s:wait_lines('rec', ['sub/deep/d.md']), ['sub/deep/d.md'])
   call goda_fi#ui#do_action('quit')
 
   " Errors are told.

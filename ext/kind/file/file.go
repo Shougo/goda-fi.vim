@@ -187,3 +187,25 @@ func (Kind) Preview(_ context.Context, _ sdk.Host, a fi.PreviewArgs) (*fi.Previe
 	}
 	return &fi.Previewer{Kind: "buffer", Path: path, LineNr: t.LineNr}, nil
 }
+
+// PathOf is the path of an item of this kind (its ActionData), "" when it has
+// none: for filters on paths.
+func PathOf(it *fi.Item) string {
+	switch a := it.Action.(type) {
+	case ActionData:
+		return a.Path
+	case *ActionData:
+		if a != nil {
+			return a.Path
+		}
+		return ""
+	case map[string]any:
+		p, _ := a["path"].(string)
+		return p
+	}
+	var ad ActionData
+	if it.Action != nil && sdk.Decode(it.Action, &ad) == nil {
+		return ad.Path
+	}
+	return ""
+}
