@@ -32,7 +32,7 @@ type Params struct {
 	MaxDisplayItems int `json:"maxDisplayItems"`
 	// MaxHighlightItems bounds the items whose highlights are drawn.
 	MaxHighlightItems int `json:"maxHighlightItems"`
-	// DisplaySourceName: "no", "short" or "long".
+	// DisplaySourceName: "no", "short" or "long" (see sourcePrefixes).
 	DisplaySourceName string `json:"displaySourceName"`
 	// DisplayTree is accepted; trees are not shown yet.
 	DisplayTree bool `json:"displayTree"`
@@ -219,18 +219,71 @@ type info struct {
 	Lines [][]any `json:"lines"`
 }
 
-func sourcePrefix(mode, name string) string {
+// sourcePrefixes are what goes before the items of every source: "[name] "
+// with displaySourceName "long"; with "short", a short name that tells it
+// from the others (shortNames).
+func sourcePrefixes(mode string, sources []string) map[string]string {
+	out := map[string]string{}
 	switch mode {
 	case "long":
-		return "[" + name + "] "
-	case "short":
-		var b strings.Builder
-		for _, part := range strings.FieldsFunc(name, func(r rune) bool { return r == '_' || r == '-' }) {
-			b.WriteString(part[:1])
+		for _, s := range sources {
+			out[s] = "[" + s + "] "
 		}
-		return "[" + b.String() + "] "
+	case "short":
+		for name, short := range shortNames(sources) {
+			out[name] = "[" + short + "] "
+		}
 	}
-	return ""
+	return out
+}
+
+// shortNames are the short names of the sources. A name shares its first
+// characters with the other names, the most with one of them: the short
+// name is the shorter of
+//
+//   - its first character and what follows the shared part (file, fileold
+//     and filerec are f, fold and frec), and
+//   - the shared part and one character more (rg and register are rg and
+//     re).
+//
+// A name that shares nothing is its first character.
+func shortNames(sources []string) map[string]string {
+	out := map[string]string{}
+	for _, s := range sources {
+		if s == "" {
+			continue
+		}
+		shared := 0
+		for _, o := range sources {
+			if o != s {
+				shared = max(shared, commonPrefix(s, o))
+			}
+		}
+		rs := []rune(s)
+		first := string(rs[0])
+		cut := first + s[max(shared, len(first)):]
+		head := string(rs[:min(len([]rune(s[:shared]))+1, len(rs))])
+		if len([]rune(head)) < len([]rune(cut)) {
+			out[s] = head
+		} else {
+			out[s] = cut
+		}
+	}
+	return out
+}
+
+// commonPrefix is the length in bytes of what a and b start with (whole
+// characters).
+func commonPrefix(a, b string) int {
+	n := 0
+	for i, r := range a {
+		c := string(r)
+		if !strings.HasPrefix(b[min(i, len(b)):], c) {
+			break
+		}
+		n = i + len(c)
+	}
+	return n
 }
 
 // Redraw sends the lines of the view to Vim.
@@ -278,9 +331,10 @@ func (u *UI) Redraw(ctx context.Context, h sdk.Host, v *fi.View) error {
 		}
 		return i + 1
 	}
+	prefixes := sourcePrefixes(p.DisplaySourceName, v.Sources)
 	for i := range n {
 		it := &v.Items[i]
-		prefix := sourcePrefix(p.DisplaySourceName, it.SourceName())
+		prefix := prefixes[it.SourceName()]
 		text := prefix + oneLine(it.Text())
 		r.Lines[row(i)-1] = text
 		r.IDs[row(i)-1] = it.ID()

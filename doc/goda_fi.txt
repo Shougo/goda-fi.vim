@@ -262,7 +262,13 @@ floatingBlend		0: their 'winblend'.
 autoResize		The window is no higher than its items.
 maxDisplayItems		1000: the lines of the buffer.
 maxHighlightItems	100: the items whose highlights are drawn.
-displaySourceName	"no", "short" or "long".
+displaySourceName	"no", "short" or "long": the name of the source
+			before the items. "short" leaves out what the name
+			shares with the other sources at its start (file,
+			fileold and filerec are [f], [fold] and [frec]), or
+			keeps it and one letter more when that is shorter
+			(rg and register are [rg] and [re]); a name that
+			shares nothing is its first letter.
 displayTree		Accepted; trees are not shown yet.
 reversed		The first item at the bottom.
 ignoreEmpty		No window without items.

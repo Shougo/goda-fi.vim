@@ -2,6 +2,7 @@ package ff
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -107,10 +108,28 @@ func TestBadParams(t *testing.T) {
 }
 
 func TestSourcePrefix(t *testing.T) {
-	if got := sourcePrefix("short", "file_rec"); got != "[fr] " {
-		t.Errorf("short %q", got)
+	for _, c := range []struct {
+		sources []string
+		want    map[string]string
+	}{
+		{[]string{"file", "fileold", "filerec", "file"}, map[string]string{"file": "f", "fileold": "fold", "filerec": "frec"}},
+		{[]string{"fileold", "filegit", "file"}, map[string]string{"fileold": "fold", "filegit": "fgit", "file": "f"}},
+		{[]string{"filerec", "buffer"}, map[string]string{"filerec": "f", "buffer": "b"}},
+		{[]string{"rg", "register"}, map[string]string{"rg": "rg", "register": "re"}},
+		{[]string{"rg", "register", "line"}, map[string]string{"rg": "rg", "register": "re", "line": "l"}},
+		{[]string{"buffer", "bufferlist"}, map[string]string{"buffer": "b", "bufferlist": "blist"}},
+		{[]string{"line"}, map[string]string{"line": "l"}},
+		{[]string{"ファイル", "ファイル古"}, map[string]string{"ファイル": "フ", "ファイル古": "フ古"}},
+	} {
+		got := shortNames(c.sources)
+		if fmt.Sprint(got) != fmt.Sprint(c.want) {
+			t.Errorf("%v: got %v, want %v", c.sources, got, c.want)
+		}
 	}
-	if got := sourcePrefix("long", "file"); got != "[file] " {
+	if got := sourcePrefixes("long", []string{"file"})["file"]; got != "[file] " {
 		t.Errorf("long %q", got)
+	}
+	if got := sourcePrefixes("no", []string{"file"})["file"]; got != "" {
+		t.Errorf("no %q", got)
 	}
 }

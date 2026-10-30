@@ -281,6 +281,12 @@ function! s:run() abort
   call s:start({'name': 'old', 'sources': ['fileold']})
   call s:check('fileold', s:wait_lines('old', ['b.go']), ['b.go'])
   call goda_fi#ui#do_action('quit')
+  " The short names of the sources: what they share left out.
+  call s:start({'name': 'old', 'sources': ['fileold', 'file'],
+        \ 'uiParams': {'ff': {'displaySourceName': 'short'}}})
+  call s:check('short names', s:wait_lines('old', ['[fold] b.go', '[f] a.txt', '[f] b.go', '[f] msg.log', '[f] sub/']),
+        \ ['[fold] b.go', '[f] a.txt', '[f] b.go', '[f] msg.log', '[f] sub/'])
+  call goda_fi#ui#do_action('quit')
 
   " autoResize, and autoAction: the preview follows the cursor.
   call s:start({'name': 'auto', 'sources': ['file'], 'uiParams': {'ff': {
