@@ -52,8 +52,8 @@ dotfiles):
 	go mod tidy
 <
 Build it (again after every change of the configuration, and after
-updating goda-fi.vim with `go get -u`): >vim
-
+updating goda-fi.vim with `go get -u`):
+>vim
 	:call goda_fi#build()
 <
 The binary goes to a cache directory (|g:goda_fi#binary|), and is started by
@@ -67,14 +67,14 @@ goda-fi.vim then uses it instead of starting its own.
 ==============================================================================
 USAGE                                                          *goda-fi-usage*
 
-Start a session: >vim
-
+Start a session:
+>vim
 	call goda_fi#start({'sources': ['filerec']})
 	call goda_fi#start({'name': 'files', 'resume': v:true})
 <
 The UI ff shows the items in a buffer of filetype "goda-fi-ff". Map its
-actions there, as with ddu-ui-ff: >vim
-
+actions there, as with ddu-ui-ff:
+>vim
 	autocmd FileType goda-fi-ff call s:ff()
 	function! s:ff() abort
 	  nnoremap <buffer> <CR>
@@ -95,8 +95,8 @@ actions there, as with ddu-ui-ff: >vim
 	endfunction
 <
 The filter is typed in the command line (|input()|); map keys there with the
-events: >vim
-
+events:
+>vim
 	autocmd User GodaFi:uiOpenFilterWindow
 	      \ cnoremap <buffer> <C-n>
 	      \ <Cmd>call goda_fi#ui#do_action('cursorNext')<CR>
@@ -142,41 +142,41 @@ goda_fi#get_context({name})
 goda_fi#sessions()
 	The names of the sessions.
 
-                                              *goda_fi#custom#patch_global()*
+                                               *goda_fi#custom#patch_global()*
 goda_fi#custom#patch_global({options})
 goda_fi#custom#patch_global({key}, {value})
 	Merges {options} into the options of every session, over those of
 	the configuration (Builder.PatchGlobal). Dictionaries are merged;
 	the rest is replaced.
 
-                                               *goda_fi#custom#patch_local()*
+                                                *goda_fi#custom#patch_local()*
 goda_fi#custom#patch_local({name}, {options})
 goda_fi#custom#patch_local({name}, {key}, {value})
 	The same for the sessions named {name} (Builder.PatchLocal).
 
-goda_fi#custom#get_global()                     *goda_fi#custom#get_global()*
-goda_fi#custom#get_local()                       *goda_fi#custom#get_local()*
+goda_fi#custom#get_global()                      *goda_fi#custom#get_global()*
+goda_fi#custom#get_local()                        *goda_fi#custom#get_local()*
 	The patches made.
 
-                                                     *goda_fi#ui#do_action()*
+                                                      *goda_fi#ui#do_action()*
 goda_fi#ui#do_action({action} [, {params} [, {name}]])
 	Runs the UI action {action} of the session of the current buffer
 	(or {name}). See |goda-fi-ui-ff-actions|.
 
-                                                 *goda_fi#ui#multi_actions()*
+                                                  *goda_fi#ui#multi_actions()*
 goda_fi#ui#multi_actions({actions} [, {name}])
 	Runs the UI actions in order; each is a name or [name, params].
 
-                                                      *goda_fi#ui#get_item()*
+                                                       *goda_fi#ui#get_item()*
 goda_fi#ui#get_item([{name}])
 	The item under the cursor: {word, display, action, kind, __id,
 	__sourceName, __sourceIndex}, or {}.
 
-                                                     *goda_fi#ui#get_items()*
+                                                      *goda_fi#ui#get_items()*
 goda_fi#ui#get_items([{name}])
 	The items shown.
 
-                                                       *goda_fi#ui#visible()*
+                                                        *goda_fi#ui#visible()*
 goda_fi#ui#visible([{name}])
 	Is the UI of the session shown?
 
@@ -201,17 +201,26 @@ The options are those of ddu.vim (|ddu-options|), with the same names, in
 Vim script and in Go (fi.Options). Supported:
 
 name		The session name ("default").
+
 ui		The UI ("ff").
+
 sources		The sources: names, or {name, options, params}.
+
 sourceOptions	By source name, "_" for all: matchers, sorters, converters,
 		defaultAction, ignoreCase, smartCase, matcherKey ("word" or
 		"display"), maxItems (10000), path, preview, volatile.
+
 sourceParams	By source name: the params of the sources.
+
 filterOptions	By filter name: minInputLength.
+
 filterParams	By filter name: the params of the filters.
+
 kindOptions	By kind name: defaultAction, actions (other names of
 		actions: {"o": "open"}).
+
 kindParams	By kind name.
+
 uiOptions	By UI name: defaultAction (the item action of itemAction
 		without a name, before those of the source and the kind),
 		filterInputFunc ("input"; "cmdline#input", say),
@@ -219,17 +228,29 @@ uiOptions	By UI name: defaultAction (the item action of itemAction
 		filterUpdateCallback (a function of the input typed, that
 		returns what filters), filterPrompt, filterUpdateMax,
 		persist, toggle.
+
 uiParams	By UI name: the params of the UI (|goda-fi-ui-ff-params|).
+
 actionOptions	By action name: quit (v:true).
+
 actionParams	By action name: the params of the actions.
+
 postFilters	Filters run on the items of all the sources together.
+
 actions		The item actions offered (all when unset).
+
 input		The input to start with.
+
 resume		Show the session as it was, without gathering again.
+
 refresh		Gather again when resuming.
+
 push		Keep the session replaced, for |goda_fi#pop()|.
+
 sync		Draw once every item is there.
+
 searchPath	Put the cursor on the item of this path.
+
 unique		Drop the items whose word another item has.
 
 An unknown option, source, filter or UI is an error.
@@ -248,20 +269,33 @@ params ("(&columns - eval(uiParams.winWidth)) / 2").
 split			"horizontal" (default), "vertical", "floating"
 			(Neovim; Vim splits horizontally, as ddu-ui-ff),
 			"tab" or "no".
+
 splitDirection		"botright" (default), "topleft", "belowright",
 			"aboveleft".
+
 winHeight		20.
+
 winWidth		"&columns / 2".
+
 winRow			"&lines / 2 - 10": of a floating window.
+
 winCol			"(&columns - eval(uiParams.winWidth)) / 2".
+
 floatingBorder		"none": the border of the floating windows, as
 			|nvim_open_win()|'s.
+
 floatingTitle		"".
+
 floatingTitlePos	"left".
+
 floatingBlend		0: their 'winblend'.
+
 autoResize		The window is no higher than its items.
+
 maxDisplayItems		1000: the lines of the buffer.
+
 maxHighlightItems	100: the items whose highlights are drawn.
+
 displaySourceName	"no", "short" or "long": the name of the source
 			before the items. "short" leaves out what the name
 			shares with the other sources at its start (file,
@@ -269,33 +303,54 @@ displaySourceName	"no", "short" or "long": the name of the source
 			keeps it and one letter more when that is shorter
 			(rg and register are [rg] and [re]); a name that
 			shares nothing is its first letter.
+
 displayTree		Accepted; trees are not shown yet.
+
 reversed		The first item at the bottom.
+
 ignoreEmpty		No window without items.
+
 cursorPos		The line of the cursor when it opens.
+
 highlights		Groups: "selected" (Statement), "floating"
 			(NormalFloat), "floatingBorder" (FloatBorder),
 			"floatingCursorLine" (CursorLine).
+
 overwriteStatusline	v:true: the name, the counts, the input.
+
 autoAction		{name, params, delay (100)}: the UI action run when
 			the cursor is on another item ({"name": "preview"}),
 			once enabled by startAutoAction or toggleAutoAction.
+
 startAutoAction		Enable autoAction when the window opens.
+
 previewSplit		"horizontal" (default), "vertical" or "no".
+
 previewHeight		10.
+
 previewWidth		80.
+
 previewMaxSize		1000000: larger files are not previewed.
+
 previewFloating		The preview in a floating window (Neovim) or a popup
 			(Vim), beside the window of the items.
+
 previewFloatingBorder	"none".
+
 previewFloatingTitle	"".
+
 previewFloatingTitlePos	"left".
+
 previewFloatingZindex	100.
+
 previewRow		0: where the floating preview goes, when not 0.
+
 previewCol		0.
+
 onPreview		"": a Vim function called after a preview with
 			{previewWinId, lineNr} (ddu-ui-ff's onPreview, as the
-			name of a function): >vim
+			name of a function):
+>vim
 			function! MyOnPreview(args) abort
 			  call win_execute(a:args.previewWinId, 'normal! zt')
 			endfunction
@@ -308,19 +363,29 @@ ACTIONS                                                *goda-fi-ui-ff-actions*
 itemAction		Runs params.name (the default action when unset) with
 			params.params on the items selected, or under the
 			cursor.
+
 toggleSelectItem	Selects the item under the cursor, or not.
+
 toggleAllItems		Selects all, or none.
+
 clearSelectAllItems	Selects none.
+
 cursorNext		Moves the cursor down params.count (1) lines;
 			params.loop goes around.
+
 cursorPrevious		The same, up.
+
 openFilterWindow	Types the filter in the command line; params.prompt.
+
 toggleAutoAction	Enables autoAction, or disables it (and closes the
 			preview).
+
 preview			Shows the item under the cursor in the preview
 			window (params.toggle: closes it when it shows that
 			item).
+
 redraw			Gathers again; {method: "uiRedraw"} draws again.
+
 quit			Closes the window.
 
 ==============================================================================
@@ -330,19 +395,25 @@ ddu.vim's names lose their "_": "file_rec" is "filerec".
 
 file		ext/source/file (ddu-source-file): the files of a
 		directory. Params: ignoreDirectories, new.
+
 filerec		ext/source/filerec (ddu-source-file_rec): the files under
 		a directory. Params: chunkSize (1000), ignoredDirectories
 		([".git"]), expandSymbolicLink.
+
 fileold		ext/source/fileold (ddu-source-file_old): v:oldfiles,
 		the viminfo or ShaDa read again first.
+
 buffer		ext/source/buffer (ddu-source-buffer): the listed buffers
 		of files, the alternate one first.
+
 filepoint	ext/source/filepoint (ddu-source-file_point): the file
 		under the cursor, at the line and column after it
 		("path:10:3", "path", line 10, a diff...).
+
 fileexternal	ext/source/fileexternal (ddu-source-file_external): the
 		files a command lists. Params: cmd (["fd", "-t", "f"]),
 		updateItems.
+
 rg		ext/source/rg (ddu-source-rg): what ripgrep finds. Params:
 		input (the pattern; the input when the source is
 		volatile), args (["--column", "--no-heading", "--color",
@@ -351,9 +422,11 @@ rg		ext/source/rg (ddu-source-rg): what ripgrep finds. Params:
 		highlights ({path, lineNr, word}), maxEnqueSize (10000),
 		minVolatileInputLength (2), paths. inputType "migemo" is not
 		supported.
+
 line		ext/source/line (ddu-source-line): the lines of the
 		buffer, from the cursor line. Params: bufNr,
 		ignoreEmptyInput, range ("buffer" or "window"), winId.
+
 register	ext/source/register (ddu-source-register): the registers
 		that are not empty, of the kind "word".
 
@@ -368,18 +441,24 @@ matchersubstring	ext/filter/matchersubstring
 			"^word" is a prefix, "word$" a suffix, "\ " a space.
 			Params: highlightMatched (""), limit (1000),
 			maxLength (500).
+
 matcherhidden		ext/filter/matcherhidden
 			(ddu-filter-matcher_hidden): no hidden files, unless
 			the input has a ".".
+
 matcherrelative		ext/filter/matcherrelative
 			(ddu-filter-matcher_relative): only the files under
 			the directory of the source.
+
 matcherfiles		ext/filter/matcherfiles (ddu-filter-matcher_files):
 			only the paths of params.globs or params.patterns.
+
 sorteralpha		ext/filter/sorteralpha (ddu-filter-sorter_alpha): by
 			word.
+
 sortermtime		ext/filter/sortermtime (ddu-filter-sorter_mtime): the
 			files changed last first.
+
 converterhldir		ext/filter/converterhldir
 			(ddu-filter-converter_hl_dir): the directories of
 			the path highlighted. Params: hlGroup ("Directory",
@@ -392,6 +471,7 @@ file		ext/kind/file (ddu-kind-file). Actions: open (params:
 		command "edit", maxSize), append, insert, cd, execute
 		(params: command), feedkeys, loclist, quickfix, yank.
 		Previews files and buffers.
+
 word		ext/kind/word (ddu-kind-word). Actions: append, insert,
 		feedkeys, yank. Previews the text.
 
@@ -418,10 +498,15 @@ EVENTS                                                        *goda-fi-events*
 User autocommands, as ddu.vim's:
 
 GodaFi:uiReady			The window of the UI opened.
+
 GodaFi:uiRedraw			The UI was drawn.
+
 GodaFi:uiDone			Every item is there.
+
 GodaFi:uiQuit			The UI was closed.
+
 GodaFi:uiOpenFilterWindow	The filter is about to be typed.
+
 GodaFi:uiCloseFilterWindow	The filter was typed.
 
 ==============================================================================
@@ -433,11 +518,14 @@ fi.Source	Name, Kind, and Gather(ctx, host, args, emit): emit hands
 		items over as they come; the engine draws meanwhile. Gather
 		returns when it has no more, or ctx is done (the session
 		started over or ended). Optional: OnInit, Actions.
+
 fi.Filter	Name, and Filter(ctx, host, args): the items filtered (new
 		slices; items are values, change copies).
+
 fi.Kind		Name, and Actions: fi.Action{Description, Run}. Run
 		returns fi.ActionResult (flags as ddu.vim's: RefreshItems,
 		Redraw, Persist). Optional: Preview.
+
 fi.UI		Name, Redraw(view), Quit(view), Actions. Optional: Acks
 		(fi.UIAcker: Vim tells when a view is drawn).
 
