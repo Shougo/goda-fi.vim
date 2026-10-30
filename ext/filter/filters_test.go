@@ -52,12 +52,15 @@ func TestMatcherHidden(t *testing.T) {
 }
 
 func TestMatcherRelative(t *testing.T) {
+	// Absolute paths of this system ("/r" is not one on MS-Windows).
+	root := t.TempDir()
+	base := filepath.Join(root, "r")
 	its := []fi.Item{
-		{Word: "in", Action: file.ActionData{Path: "/r/in"}},
-		{Word: "out", Action: file.ActionData{Path: "/elsewhere/out"}},
+		{Word: "in", Action: file.ActionData{Path: filepath.Join(base, "in")}},
+		{Word: "out", Action: file.ActionData{Path: filepath.Join(root, "elsewhere", "out")}},
 		{Word: "none"},
 	}
-	a := fi.FilterArgs{Items: its, Context: &fi.Context{Cwd: "/r", Path: "/r"}}
+	a := fi.FilterArgs{Items: its, Context: &fi.Context{Cwd: base, Path: base}}
 	if got := run(t, matcherrelative.New(), a); got != "in" {
 		t.Errorf("relative: %q", got)
 	}
