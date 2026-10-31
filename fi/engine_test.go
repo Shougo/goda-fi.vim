@@ -571,3 +571,39 @@ func TestVolatileMatchedAndKept(t *testing.T) {
 		t.Errorf("matched %q", words(v.Items))
 	}
 }
+
+// echoNew is the source file with new: one item, of the input.
+type echoNew struct{ delay time.Duration }
+
+func (echoNew) Name() string { return "new" }
+func (echoNew) Kind() string { return "word" }
+func (s echoNew) Gather(ctx context.Context, _ sdk.Host, a GatherArgs, emit func([]Item) error) error {
+	if a.Input == "" {
+		return nil
+	}
+	select {
+	case <-time.After(s.delay):
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return emit([]Item{{Word: a.Input}})
+}
+
+// While the input is typed, the item of a volatile source is drawn once it
+// answered for the new input, not first without it.
+func TestVolatileNoGap(t *testing.T) {
+	f := newFixture(t, echoNew{delay: 30 * time.Millisecond}, &listSource{name: "list", batches: [][]string{{"shou", "go"}}})
+	f.call(t, "start", map[string]any{
+		"name": "nw", "sources": []any{"new", "list"},
+		"sourceOptions": map[string]any{"new": map[string]any{"volatile": true}},
+	}, map[string]any{}, map[string]any{})
+	waitView(t, f.ui, done)
+	for _, in := range []string{"s", "sh", "sho"} {
+		f.call(t, "redraw", "nw", map[string]any{"input": in})
+		v := waitView(t, f.ui, func(v *View) bool { return v.Context.Input == in })
+		if len(v.Items) == 0 || v.Items[0].Word != in {
+			t.Errorf("input %q drawn with %q", in, words(v.Items))
+		}
+		waitView(t, f.ui, func(v *View) bool { return v.Context.Input == in && done(v) })
+	}
+}

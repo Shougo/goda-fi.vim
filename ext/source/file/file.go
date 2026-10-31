@@ -69,6 +69,11 @@ func (s source) Gather(ctx context.Context, _ sdk.Host, a fi.GatherArgs, emit fu
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
+		if dir != base {
+			// The input names a directory that is not there (yet: a new
+			// file is typed, say), as ddu-source-file: nothing.
+			return nil
+		}
 		return err
 	}
 	items := make([]fi.Item, 0, min(len(entries), chunk))

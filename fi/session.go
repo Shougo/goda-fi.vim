@@ -20,6 +20,10 @@ var redrawInterval = 50 * time.Millisecond
 // before (UIAcker) at most.
 var ackTimeout = 2 * time.Second
 
+// holdMax is how long a redraw waits for the volatile sources to answer for
+// a new input at most.
+var holdMax = 300 * time.Millisecond
+
 // keptViews is how many of the last views ItemAt knows.
 const keptViews = 8
 
@@ -168,6 +172,10 @@ type state struct {
 	initCur   bool
 	open      bool
 	lastOpen  int64
+	// holding are the volatile sources gathering for a new input; the UI is
+	// not drawn before they answered, or holdUntil.
+	holding   map[int]bool
+	holdUntil time.Time
 	// inflight is the version drawn and not acknowledged yet (UIAcker),
 	// since inflightAt; deferred: a redraw waits for it.
 	inflight   int64
@@ -344,7 +352,11 @@ func (st *state) gatherSource(ctx context.Context, i, gen int, a GatherArgs) {
 					}
 					g.items = append(g.items, out...)
 					st.dirty = true
-					st.scheduleRedraw()
+					if st.holding[i] {
+						st.release(i)
+					} else {
+						st.scheduleRedraw()
+					}
 				}
 			})
 			return nil
@@ -359,6 +371,9 @@ func (st *state) gatherSource(ctx context.Context, i, gen int, a GatherArgs) {
 			// Nothing came for the new input.
 			st.src[i].items, st.src[i].stale = nil, false
 			st.dirty = true
+		}
+		if st.holding[i] {
+			st.release(i)
 		}
 		if err != nil && !errors.Is(err, context.Canceled) {
 			st.report(fmt.Errorf("source %s: %w", spec.Name, err))
@@ -567,6 +582,21 @@ func (st *state) redrawNow() {
 	if !st.visible || st.ui == nil || (st.sync && !st.allDone()) {
 		return
 	}
+	if len(st.holding) > 0 {
+		if wait := time.Until(st.holdUntil); wait > 0 {
+			if st.timer == nil {
+				st.timer = time.AfterFunc(wait, func() {
+					st.s.do(func(st *state) {
+						st.timer = nil
+						st.holding = nil
+						st.redrawNow()
+					})
+				})
+			}
+			return
+		}
+		st.holding = nil
+	}
 	acker, acks := st.ui.(UIAcker)
 	acks = acks && acker.Acks()
 	if acks && st.inflight != 0 {
@@ -631,6 +661,25 @@ func (st *state) setInput(input string) {
 	}
 	if len(volatile) > 0 {
 		st.gather(volatile, true)
+		// As ddu.vim: drawn once they answered for the new input (what they
+		// gathered for the old one may not match it), within holdMax.
+		st.holding = map[int]bool{}
+		for _, i := range volatile {
+			st.holding[i] = true
+		}
+		st.holdUntil = time.Now().Add(holdMax)
+	}
+}
+
+// release ends the wait for the volatile source i (it answered).
+func (st *state) release(i int) {
+	if !st.holding[i] {
+		return
+	}
+	delete(st.holding, i)
+	if len(st.holding) == 0 {
+		st.stopTimer()
+		st.redrawNow()
 	}
 }
 
@@ -645,6 +694,7 @@ func (st *state) refresh() {
 // the name has the UI.
 func (st *state) hide() {
 	st.stopTimer()
+	st.holding = nil
 	st.visible = false
 	st.inflight, st.deferred = 0, false
 }
@@ -660,6 +710,7 @@ func (st *state) show() {
 // quit closes the UI; the session stays, to be resumed.
 func (st *state) quit(ctx context.Context) error {
 	st.stopTimer()
+	st.holding = nil
 	st.inflight, st.deferred = 0, false
 	if !st.visible || st.ui == nil {
 		st.visible = false
