@@ -330,6 +330,14 @@ function! s:run() abort
   call s:check('filterInputFunc', s:wait_lines('rec', ['sub/deep/d.md']), ['sub/deep/d.md'])
   call goda_fi#ui#do_action('quit')
 
+  " The binary stopped (or exited): the next start starts it again.
+  call goda#stop('fi')
+  call s:check('stopped', goda#is_running('fi'), 0)
+  call s:start({'name': 'again', 'sources': ['file']})
+  call s:check('restarted', s:wait_lines('again', ['a.txt', 'b.go', 'msg.log', 'sub/']),
+        \ ['a.txt', 'b.go', 'msg.log', 'sub/'])
+  call goda_fi#ui#do_action('quit')
+
   " Errors are told.
   call goda_fi#start({'name': 'bad', 'sources': ['nosuch']})
   call s:check('unknown source', s:shown('bad'), v:false)

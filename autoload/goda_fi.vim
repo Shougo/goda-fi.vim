@@ -44,9 +44,8 @@ function! s:config_dir() abort
 endfunction
 
 " Build the user's configuration (a Go module in g:goda_fi#config_dir), after
-" "go mod tidy". The running binary is stopped first, and the new one starts
-" with the next goda_fi#start(). When the build fails, the previous binary
-" keeps running.
+" "go mod tidy". The running binary is stopped, and the new one starts with
+" the next request. When the build fails, the previous binary keeps running.
 function! goda_fi#build() abort
   let dir = s:config_dir()
   if !isdirectory(dir)
@@ -68,6 +67,7 @@ function! goda_fi#build() abort
   if rename(tmp, bin) != 0
     throw 'goda-fi: cannot replace ' . bin
   endif
+  call goda#register('fi', function('s:start'))
   echomsg 'goda-fi: built ' . bin
 endfunction
 
@@ -79,11 +79,9 @@ function! s:own_binary() abort
         \ && plugins.fi ==# fnamemodify(s:default_bin(), ':p')
 endfunction
 
-" Start the binary, unless the plugin "fi" is served already.
-function! s:ensure() abort
-  if goda#is_running('fi')
-    return
-  endif
+" Start the binary: goda.vim calls it when a request needs the plugin "fi"
+" and no binary serves it (not started yet, stopped, or exited).
+function! s:start() abort
   let bin = s:default_bin()
   if !executable(bin)
     throw 'goda-fi: ' . bin . ' does not exist yet; build it with: call goda_fi#build()'
@@ -104,6 +102,9 @@ function! s:ensure() abort
   endif
 endfunction
 
+" (Again after a build: a start that failed is tried again.)
+call goda#register('fi', function('s:start'))
+
 " ---------------------------------------------------------------------------
 " API (that of ddu.vim)
 
@@ -112,7 +113,6 @@ endfunction
 " {'resume': v:true}.
 function! goda_fi#start(options = {}) abort
   try
-    call s:ensure()
     let context = {
           \ 'bufName': bufname('%'),
           \ 'bufNr': bufnr('%'),
