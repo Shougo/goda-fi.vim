@@ -129,6 +129,10 @@ type gathering struct {
 	cancel context.CancelFunc
 	done   bool
 	items  []Item
+	// stale: items are those of the gathering before (a volatile source
+	// gathering again for a new input), shown until new ones come, so that
+	// the UI does not show the source empty in between.
+	stale bool
 }
 
 // state is a session: the items gathered, the input, the selection, and
@@ -228,7 +232,7 @@ func (st *state) start(o Options, p patch, c Context, user patch) (<-chan struct
 			st.initCur = true
 		}
 		st.started = true
-		st.gather(nil)
+		st.gather(nil, false)
 	} else {
 		st.redrawNow()
 	}
@@ -239,8 +243,9 @@ func (st *state) start(o Options, p patch, c Context, user patch) (<-chan struct
 	return wait, nil
 }
 
-// gather gathers the sources of these indexes again (all, for nil).
-func (st *state) gather(indexes []int) {
+// gather gathers the sources of these indexes again (all, for nil). With
+// keep, their items stay shown until new ones come.
+func (st *state) gather(indexes []int, keep bool) {
 	n := len(st.opts.Sources)
 	if indexes == nil || len(st.src) != n {
 		for _, g := range st.src {
@@ -257,12 +262,16 @@ func (st *state) gather(indexes []int) {
 	st.ctx.Done = false
 	st.dirty = true
 	for _, i := range indexes {
-		if g := st.src[i]; g != nil && g.cancel != nil {
-			g.cancel()
+		old := st.src[i]
+		if old != nil && old.cancel != nil {
+			old.cancel()
 		}
 		st.gatherGen++
 		ctx, cancel := context.WithCancel(st.s.base)
 		g := &gathering{gen: st.gatherGen, cancel: cancel}
+		if keep && old != nil {
+			g.items, g.stale = old.items, true
+		}
 		st.src[i] = g
 		go st.gatherSource(ctx, i, g.gen, st.gatherArgs(i))
 	}
@@ -270,8 +279,10 @@ func (st *state) gather(indexes []int) {
 		st.checkDone()
 		return
 	}
-	// The items of the sources gathered again are gone: show it.
-	st.scheduleRedraw()
+	if !keep {
+		// The items of the sources gathered again are gone: show it.
+		st.scheduleRedraw()
+	}
 }
 
 func (st *state) gatherArgs(i int) GatherArgs {
@@ -328,6 +339,9 @@ func (st *state) gatherSource(ctx context.Context, i, gen int, a GatherArgs) {
 			st.s.do(func(st *state) {
 				if i < len(st.src) && st.src[i] != nil && st.src[i].gen == gen {
 					g := st.src[i]
+					if g.stale {
+						g.items, g.stale = nil, false
+					}
 					g.items = append(g.items, out...)
 					st.dirty = true
 					st.scheduleRedraw()
@@ -341,6 +355,11 @@ func (st *state) gatherSource(ctx context.Context, i, gen int, a GatherArgs) {
 			return
 		}
 		st.src[i].done = true
+		if st.src[i].stale {
+			// Nothing came for the new input.
+			st.src[i].items, st.src[i].stale = nil, false
+			st.dirty = true
+		}
 		if err != nil && !errors.Is(err, context.Canceled) {
 			st.report(fmt.Errorf("source %s: %w", spec.Name, err))
 		}
@@ -419,14 +438,10 @@ func (st *state) filter(ctx context.Context) {
 		total += len(g.items)
 		so := o.sourceOptions(i)
 		items := g.items
-		if boolOr(so.Volatile, false) {
-			// The source filtered them.
-			items = st.runFilters(ctx, &c, so, so.Converters, items)
-		} else {
-			items = st.runFilters(ctx, &c, so, so.Matchers, items)
-			items = st.runFilters(ctx, &c, so, so.Sorters, items)
-			items = st.runFilters(ctx, &c, so, so.Converters, items)
-		}
+		// As ddu.vim: the items of a volatile source are filtered too.
+		items = st.runFilters(ctx, &c, so, so.Matchers, items)
+		items = st.runFilters(ctx, &c, so, so.Sorters, items)
+		items = st.runFilters(ctx, &c, so, so.Converters, items)
 		if max := intOr(so.MaxItems, 10000); len(items) > max {
 			items = items[:max]
 		}
@@ -615,7 +630,7 @@ func (st *state) setInput(input string) {
 		}
 	}
 	if len(volatile) > 0 {
-		st.gather(volatile)
+		st.gather(volatile, true)
 	}
 }
 
@@ -623,7 +638,7 @@ func (st *state) refresh() {
 	if !st.started {
 		return
 	}
-	st.gather(nil)
+	st.gather(nil, false)
 }
 
 // hide stops drawing (the session was pushed, or popped): another session of
@@ -865,7 +880,7 @@ func (st *state) itemAction(ctx context.Context, name string, items []Item, para
 	}
 	switch {
 	case res.Flags&RefreshItems != 0:
-		st.gather(nil)
+		st.gather(nil, false)
 	case res.Flags&(Redraw|Persist) != 0 || !quit || res.SearchPath != "":
 		st.dirty = true
 		st.redrawNow()
@@ -902,7 +917,7 @@ func (st *state) uiAction(ctx context.Context, name string, params Params, pos a
 	}
 	switch {
 	case flags&RefreshItems != 0:
-		st.gather(nil)
+		st.gather(nil, false)
 	case flags&Redraw != 0:
 		st.dirty = true
 		st.redrawNow()

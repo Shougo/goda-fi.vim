@@ -89,6 +89,16 @@ function! MyInput(prompt, text, completion) abort
   return '@deep'
 endfunction
 
+" As cmdline#input(): input() with the completion given, "" when it fails.
+function! WrappedInput(prompt, text, completion) abort
+  try
+    return input(a:prompt, a:text, a:completion)
+  catch
+    let g:wrapped_error = v:exception
+    return ''
+  endtry
+endfunction
+
 function! MyCallback(input) abort
   return a:input[0] ==# '@' ? a:input[1:] : a:input
 endfunction
@@ -328,6 +338,16 @@ function! s:run() abort
   call s:wait_lines('rec', s:all)
   call goda_fi#ui#do_action('openFilterWindow')
   call s:check('filterInputFunc', s:wait_lines('rec', ['sub/deep/d.md']), ['sub/deep/d.md'])
+  call goda_fi#ui#do_action('quit')
+
+  " A filterInputFunc that calls input() with the completion it is given.
+  call s:start({'name': 'rec', 'sources': ['filerec'], 'uiOptions': {'ff': {
+        \ 'filterInputFunc': 'WrappedInput', 'filterInputOptsFunc': '',
+        \ 'filterUpdateCallback': ''}}})
+  call s:wait_lines('rec', s:all)
+  call feedkeys(":call goda_fi#ui#do_action('openFilterWindow')\<CR>.md\<CR>", 'xt')
+  call s:check('wrapped input', s:wait_lines('rec', ['sub/deep/d.md']), ['sub/deep/d.md'])
+  call s:check('wrapped input error', get(g:, 'wrapped_error', ''), '')
   call goda_fi#ui#do_action('quit')
 
   " The binary stopped (or exited): the next start starts it again.

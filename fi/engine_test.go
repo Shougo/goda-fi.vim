@@ -536,3 +536,38 @@ func TestUIDefaultAction(t *testing.T) {
 		t.Errorf("ran %s", got)
 	}
 }
+
+// slowVolatile gathers the same words for any input, a while after.
+type slowVolatile struct{}
+
+func (slowVolatile) Name() string { return "slow" }
+func (slowVolatile) Kind() string { return "word" }
+func (slowVolatile) Gather(ctx context.Context, _ sdk.Host, _ GatherArgs, emit func([]Item) error) error {
+	select {
+	case <-time.After(100 * time.Millisecond):
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return emit([]Item{{Word: "apple"}, {Word: "banana"}})
+}
+
+// A volatile source is filtered by the matchers too (as in ddu.vim), and its
+// items stay shown while it gathers again for a new input.
+func TestVolatileMatchedAndKept(t *testing.T) {
+	f := newFixture(t, slowVolatile{})
+	f.call(t, "start", map[string]any{
+		"name": "sv", "sources": []any{"slow"},
+		"sourceOptions": map[string]any{"slow": map[string]any{"volatile": true}},
+	}, map[string]any{}, map[string]any{})
+	waitView(t, f.ui, func(v *View) bool { return done(v) && len(v.Items) == 2 })
+	f.call(t, "redraw", "sv", map[string]any{"input": "an"})
+	v := waitView(t, f.ui, func(v *View) bool {
+		if len(v.Items) == 0 {
+			t.Errorf("version %d shows nothing (input %q, done %v)", v.Version, v.Context.Input, v.Context.Done)
+		}
+		return done(v) && v.Context.Input == "an"
+	})
+	if words(v.Items) != "banana" {
+		t.Errorf("matched %q", words(v.Items))
+	}
+}

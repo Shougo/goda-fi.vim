@@ -115,8 +115,13 @@ function! s:redraw(name, r) abort
       call win_execute(winid, 'normal! zb')
     endif
     if a:r.params.overwriteStatusline
-      call setwinvar(winid, '&statusline', s:escape(a:r.status[0])
-            \ . ' %#LineNr#%{line(".")}/%{line("$")}%*' . s:escape(a:r.status[1]))
+      " Not "[async]" in the command line, where every key gathers a volatile
+      " source again (as ddu-ui-ff).
+      let foot = mode() ==# 'c' ? substitute(a:r.status[1], ' \[async\]$', '', '') : a:r.status[1]
+      let line = s:escape(a:r.status[0]) . ' %#LineNr#%{line(".")}/%{line("$")}%*' . s:escape(foot)
+      if getwinvar(winid, '&statusline') !=# line
+        call setwinvar(winid, '&statusline', line)
+      endif
     endif
   endif
 
@@ -439,15 +444,19 @@ function! s:open_filter(name, params) abort
   let func = get(st.params, 'filterInputFunc', '')
   let opts_func = get(st.params, 'filterInputOptsFunc', '')
   try
+    " The functions are given a completion, as ddu.vim's: input() with ""
+    " for it fails (E180), and cmdline#input() then gives "".
+    let completion = 'custom,goda_fi#ui#ff#_complete_input'
     if has('nvim') && opts_func !=# ''
       let input = call(opts_func, [{'prompt': prompt, 'default': st.input,
-            \ 'cancelreturn': st.input}])
+            \ 'completion': completion, 'cancelreturn': st.input}])
     elseif func !=# '' && func !=# 'input'
-      let input = call(func, [prompt, st.input, ''])
+      let input = call(func, [prompt, st.input, completion])
     elseif has('nvim')
-      let input = input({'prompt': prompt, 'default': st.input, 'cancelreturn': st.input})
+      let input = input({'prompt': prompt, 'default': st.input,
+            \ 'completion': completion, 'cancelreturn': st.input})
     else
-      let input = input(prompt, st.input)
+      let input = input(prompt, st.input, completion)
     endif
   finally
     augroup goda-fi-filter
@@ -456,6 +465,12 @@ function! s:open_filter(name, params) abort
     call goda_fi#util#doautocmd('GodaFi:uiCloseFilterWindow')
   endtry
   call s:filter_update(input)
+endfunction
+
+" The completion of the filter: nothing (the input of the session is not a
+" command).
+function! goda_fi#ui#ff#_complete_input(arglead, cmdline, cursorpos) abort
+  return ''
 endfunction
 
 function! s:filter_update(input) abort

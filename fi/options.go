@@ -108,8 +108,8 @@ type SourceOptions struct {
 	Path string `json:"path,omitempty"`
 	// Preview: the items can be previewed (default true).
 	Preview *bool `json:"preview,omitempty"`
-	// Volatile: the source gathers again when the input changes (it
-	// filters by itself, as rg).
+	// Volatile: the source gathers again when the input changes (as rg,
+	// which searches for it); the matchers apply to its items too.
 	Volatile *bool `json:"volatile,omitempty"`
 }
 
