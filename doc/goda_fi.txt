@@ -558,7 +558,7 @@ A configuration, with the column filename (|goda-fi-columns|):
 		},
 		// narrow keeps the window (as ddu-ui-filer's example).
 		ActionOptions: map[string]fi.ActionOptions{
-			"narrow": {Quit: ptr(false)},
+			"narrow": {Quit: new(false)},
 		},
 	})
 <

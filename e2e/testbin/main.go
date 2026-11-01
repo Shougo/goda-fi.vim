@@ -71,10 +71,8 @@ func main() {
 			"tabopen": {"command": "tabedit"},
 		},
 		ActionOptions: map[string]fi.ActionOptions{
-			"narrow": {Quit: ptr(false)},
+			"narrow": {Quit: new(false)},
 		},
 	})
 	b.Main()
 }
-
-func ptr[T any](v T) *T { return &v }

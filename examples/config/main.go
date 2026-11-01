@@ -45,7 +45,7 @@ func main() {
 			"ff": {"split": "horizontal", "winHeight": 15},
 		},
 		SourceOptions: map[string]fi.SourceOptions{
-			"_": {Matchers: []string{"matchersubstring"}, IgnoreCase: ptr(true)},
+			"_": {Matchers: []string{"matchersubstring"}, IgnoreCase: new(true)},
 		},
 		KindOptions: map[string]fi.KindOptions{
 			"file": {DefaultAction: "open"},
@@ -60,5 +60,3 @@ func main() {
 
 	b.Main()
 }
-
-func ptr[T any](v T) *T { return &v }
