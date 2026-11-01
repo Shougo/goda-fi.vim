@@ -87,3 +87,31 @@ function! s:do_chosen(name, action, ids) abort
     call goda_fi#util#print_error(v:exception)
   endtry
 endfunction
+
+" Save the command line maps of {keys}, as ddu#ui#save_cmaps(): to map them
+" in GodaFi:uiOpenFilterWindow, and restore them with
+" goda_fi#ui#restore_cmaps() in GodaFi:uiCloseFilterWindow.
+function! goda_fi#ui#save_cmaps(keys) abort
+  let s:save_maps = {}
+  for key in a:keys
+    let s:save_maps[key] = maparg(key, 'c', v:false, v:true)
+  endfor
+endfunction
+
+" Restore the command line maps saved by goda_fi#ui#save_cmaps(): those
+" made since are removed.
+function! goda_fi#ui#restore_cmaps() abort
+  if !exists('s:save_maps')
+    return
+  endif
+  for [key, map] in items(s:save_maps)
+    let current = maparg(key, 'c', v:false, v:true)
+    if !empty(current)
+      execute 'cunmap' (current.buffer ? '<buffer>' : '') key
+    endif
+    if !empty(map)
+      call mapset('c', 0, map)
+    endif
+  endfor
+  let s:save_maps = {}
+endfunction

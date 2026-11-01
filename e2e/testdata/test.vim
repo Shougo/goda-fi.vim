@@ -631,6 +631,15 @@ function! s:run() abort
   endif
   call goda_fi#ui#do_action('quit')
 
+  " goda_fi#ui#save_cmaps(): the maps of the filter, and back.
+  cnoremap <C-f> global-f
+  call goda_fi#ui#save_cmaps(['<C-f>', '<C-g>'])
+  cnoremap <C-f> filter-f
+  cnoremap <buffer> <C-g> filter-g
+  call goda_fi#ui#restore_cmaps()
+  call s:check('restore_cmaps', [maparg('<C-f>', 'c'), maparg('<C-g>', 'c')], ['global-f', ''])
+  cunmap <C-f>
+
   " The binary stopped (or exited): the next start starts it again.
   call goda#stop('fi')
   call s:check('stopped', goda#is_running('fi'), 0)

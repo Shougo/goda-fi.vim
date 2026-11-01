@@ -97,13 +97,15 @@ actions there, as with ddu-ui-ff:
 	endfunction
 <
 The filter is typed in the command line (|input()|); map keys there with the
-events:
+events, and put back what they were with |goda_fi#ui#save_cmaps()|:
 >vim
-	autocmd User GodaFi:uiOpenFilterWindow
-	      \ cnoremap <buffer> <C-n>
-	      \ <Cmd>call goda_fi#ui#do_action('cursorNext')<CR>
-	autocmd User GodaFi:uiCloseFilterWindow
-	      \ silent! cunmap <buffer> <C-n>
+	autocmd User GodaFi:uiOpenFilterWindow call s:filter_maps()
+	function! s:filter_maps() abort
+	  call goda_fi#ui#save_cmaps(['<C-n>', '<C-p>'])
+	  cnoremap <C-n> <Cmd>call goda_fi#ui#do_action('cursorNext')<CR>
+	  cnoremap <C-p> <Cmd>call goda_fi#ui#do_action('cursorPrevious')<CR>
+	endfunction
+	autocmd User GodaFi:uiCloseFilterWindow call goda_fi#ui#restore_cmaps()
 <
 ==============================================================================
 FUNCTIONS                                                  *goda-fi-functions*
@@ -243,6 +245,18 @@ goda_fi#ui#get_item([{name}])
                                                       *goda_fi#ui#get_items()*
 goda_fi#ui#get_items([{name}])
 	The items shown.
+
+                                                     *goda_fi#ui#save_cmaps()*
+goda_fi#ui#save_cmaps({keys})
+	Saves the command line maps of {keys} (a list), as
+	ddu#ui#save_cmaps(): call it in GodaFi:uiOpenFilterWindow before
+	mapping them (|goda-fi-usage|).
+
+                                                  *goda_fi#ui#restore_cmaps()*
+goda_fi#ui#restore_cmaps()
+	Removes the command line maps of the keys saved by
+	|goda_fi#ui#save_cmaps()| and puts back what they were: call it in
+	GodaFi:uiCloseFilterWindow.
 
                                                         *goda_fi#ui#visible()*
 goda_fi#ui#visible([{name}])
@@ -841,7 +855,6 @@ DIFFERENCES FROM DDU.VIM                                         *goda-fi-ddu*
 - The source and the kind "action" (chooseAction) are in every
   configuration.
 - Not yet: floating windows in Vim (the preview is a popup), Vim side
-  aliases (ddu#custom#alias()), ddu#ui#save_cmaps(), the image preview of
-  togglePreview.
+  aliases (ddu#custom#alias()), the image preview of togglePreview.
 
 vim:tw=78:ts=8:noet:ft=help:norl:
