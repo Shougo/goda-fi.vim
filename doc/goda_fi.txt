@@ -253,6 +253,10 @@ searchPath	Put the cursor on the item of this path.
 
 unique		Drop the items whose word another item has.
 
+expandInput	Expand the input with |expand()| ("~/", "$VAR", "%:h"),
+		unless it starts with "<": for the sources of paths. The
+		filter and the status line show it as typed.
+
 An unknown option, source, filter or UI is an error.
 
 ==============================================================================

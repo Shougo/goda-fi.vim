@@ -313,7 +313,7 @@ func (u *UI) Redraw(ctx context.Context, h sdk.Host, v *fi.View) error {
 		IDs:        make([]uint64, n),
 		Highlights: []hl{},
 		Info:       []info{},
-		Input:      v.Context.Input,
+		Input:      v.Input,
 		PrevWinID:  v.Context.WinID,
 		Done:       v.Context.Done,
 		Params: vimParams(p, map[string]any{
@@ -367,9 +367,9 @@ func (u *UI) Redraw(ctx context.Context, h sdk.Host, v *fi.View) error {
 			r.Cursor = min(p.CursorPos, n)
 		}
 	}
-	if v.Context.Input != s.input {
+	if v.Input != s.input {
 		r.Reset = true
-		s.input = v.Context.Input
+		s.input = v.Input
 	}
 	r.Status = status(v, n)
 	s.shown = true
@@ -384,8 +384,8 @@ func status(v *fi.View, n int) [2]string {
 		head += fmt.Sprintf(" %d/%d", n, v.Context.MaxItems)
 	}
 	var foot string
-	if v.Context.Input != "" {
-		foot += " " + v.Context.Input
+	if v.Input != "" {
+		foot += " " + v.Input
 	}
 	if !v.Context.Done {
 		foot += " [async]"

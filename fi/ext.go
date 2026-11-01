@@ -210,4 +210,7 @@ type View struct {
 	// Open: the UI is not shown (it was closed, or never shown): show it
 	// and focus it. Without it the UI updates what it shows only.
 	Open bool
+	// Input is the input as it was typed: Context.Input is what filters,
+	// expanded with the option expandInput.
+	Input string
 }

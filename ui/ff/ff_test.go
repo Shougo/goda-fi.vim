@@ -69,7 +69,7 @@ func TestRender(t *testing.T) {
 
 	// Not opened again; the input changed; a cursor asked for.
 	v = view(fi.Params{"maxDisplayItems": 1}, items...)
-	v.Version, v.Context.Input, v.Context.Done = 2, "x", false
+	v.Version, v.Input, v.Context.Input, v.Context.Done = 2, "x", "x", false
 	v.Selected = map[uint64]bool{items[0].ID(): true}
 	if err := u.Redraw(context.Background(), h, v); err != nil {
 		t.Fatal(err)

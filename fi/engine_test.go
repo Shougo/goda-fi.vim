@@ -15,6 +15,8 @@ import (
 type fakeHost struct {
 	mu    sync.Mutex
 	calls []string
+	// answer, when set, is the result of Call.
+	answer func(fn string, args []any) any
 }
 
 func (h *fakeHost) Meta() sdk.Meta { return sdk.Meta{Host: sdk.HostNone} }
@@ -25,6 +27,9 @@ func (h *fakeHost) record(s string) {
 }
 func (h *fakeHost) Call(_ context.Context, fn string, args ...any) (any, error) {
 	h.record(fmt.Sprint(fn, args))
+	if h.answer != nil {
+		return h.answer(fn, args), nil
+	}
 	return nil, nil
 }
 func (h *fakeHost) Notify(_ context.Context, fn string, args ...any) error {
@@ -605,5 +610,43 @@ func TestVolatileNoGap(t *testing.T) {
 			t.Errorf("input %q drawn with %q", in, words(v.Items))
 		}
 		waitView(t, f.ui, func(v *View) bool { return v.Context.Input == in && done(v) })
+	}
+}
+
+// expandInput: what filters is the input expanded by Vim; the UI gets what
+// was typed.
+func TestExpandInput(t *testing.T) {
+	f := newFixture(t, &listSource{name: "list", batches: [][]string{{"/home/a", "/tmp/b", "~/c"}}})
+	f.h.answer = func(fn string, args []any) any {
+		if fn == "expand" {
+			return strings.ReplaceAll(args[0].(string), "~", "/home")
+		}
+		return nil
+	}
+	f.call(t, "start", map[string]any{
+		"name": "ex", "sources": []any{"list"}, "expandInput": true, "input": "~/",
+	}, map[string]any{}, map[string]any{})
+	v := waitView(t, f.ui, done)
+	if words(v.Items) != "/home/a" || v.Context.Input != "/home/" || v.Input != "~/" {
+		t.Errorf("start: %q %q %q", words(v.Items), v.Context.Input, v.Input)
+	}
+	// Not expanded: an input that starts with "<".
+	f.call(t, "redraw", "ex", map[string]any{"input": "<~"})
+	v = waitView(t, f.ui, func(v *View) bool { return v.Input == "<~" })
+	if v.Context.Input != "<~" {
+		t.Errorf("<: %q", v.Context.Input)
+	}
+	f.call(t, "redraw", "ex", map[string]any{"input": "~/c"})
+	v = waitView(t, f.ui, func(v *View) bool { return v.Input == "~/c" })
+	if v.Context.Input != "/home/c" || len(v.Items) != 0 {
+		t.Errorf("redraw: %q %q", v.Context.Input, words(v.Items))
+	}
+	// Without the option, as typed.
+	f.call(t, "start", map[string]any{
+		"name": "noex", "sources": []any{"list"}, "input": "~/",
+	}, map[string]any{}, map[string]any{})
+	v = waitView(t, f.ui, func(v *View) bool { return v.Context.Name == "noex" && done(v) })
+	if words(v.Items) != "~/c" {
+		t.Errorf("not expanded: %q", words(v.Items))
 	}
 }

@@ -51,6 +51,10 @@ type Options struct {
 	SearchPath string `json:"searchPath,omitempty"`
 	// Unique drops the items whose word another item has.
 	Unique *bool `json:"unique,omitempty"`
+	// ExpandInput: the input is expanded by Vim's expand() ("~/", "$HOME",
+	// "%:h", ...), unless it starts with "<". Useful for the sources of
+	// paths.
+	ExpandInput *bool `json:"expandInput,omitempty"`
 }
 
 // SourceSpec is a source of Options.Sources: in JSON, a name or

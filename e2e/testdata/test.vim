@@ -350,6 +350,20 @@ function! s:run() abort
   call s:check('wrapped input error', get(g:, 'wrapped_error', ''), '')
   call goda_fi#ui#do_action('quit')
 
+  " expandInput: the input expanded by expand(); the filter shows it as
+  " typed.
+  let $GODA_FI_PAT = 'deep'
+  call s:start({'name': 'exp', 'sources': ['filerec'], 'expandInput': v:true,
+        \ 'input': '$GODA_FI_PAT'})
+  call s:check('expandInput', s:wait_lines('exp', ['sub/deep/d.md']), ['sub/deep/d.md'])
+  call s:check('expandInput status', &l:statusline =~# ' \$GODA_FI_PAT$', 1)
+  call feedkeys(":call goda_fi#ui#do_action('openFilterWindow')\<CR>"
+        \ . "\<C-u>$GODA_FI_PAT/d\<CR>", 'xt')
+  call s:check('expandInput filter', s:wait_lines('exp', ['sub/deep/d.md']), ['sub/deep/d.md'])
+  call goda_fi#redraw('exp', {'input': '$GODA_FI_NONE_SUCH_X'})
+  call s:check('expandInput none', s:wait_lines('exp', ['']), [''])
+  call goda_fi#ui#do_action('quit')
+
   " The binary stopped (or exited): the next start starts it again.
   call goda#stop('fi')
   call s:check('stopped', goda#is_running('fi'), 0)

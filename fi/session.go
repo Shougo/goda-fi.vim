@@ -7,6 +7,7 @@ import (
 	"log"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -153,8 +154,10 @@ type state struct {
 	ctx     Context
 	ui      UI
 
-	src   []*gathering
+	src []*gathering
+	// input filters; typed is what was typed (input before expandInput).
 	input string
+	typed string
 	// items are the items filtered, as last drawn (or about to be).
 	items []Item
 	dirty bool
@@ -222,9 +225,10 @@ func (st *state) start(o Options, p patch, c Context, user patch) (<-chan struct
 	st.errShown = map[string]bool{}
 	switch {
 	case o.Input != nil:
-		st.input = *o.Input
+		st.typed = *o.Input
+		st.input = st.expand(st.typed)
 	case !resume:
-		st.input = ""
+		st.typed, st.input = "", ""
 	}
 	st.ctx.Input = st.input
 	st.dirty = true
@@ -528,6 +532,7 @@ func (st *state) view() *View {
 		Selected:   maps.Clone(st.selected),
 		InitCursor: st.initCur,
 		Open:       st.open,
+		Input:      st.typed,
 	}
 	for _, s := range st.opts.Sources {
 		v.Sources = append(v.Sources, s.Name)
@@ -554,6 +559,7 @@ func (st *state) currentView() *View {
 		UIParams:  st.opts.uiParams(),
 		Items:     st.views[st.version],
 		Selected:  maps.Clone(st.selected),
+		Input:     st.typed,
 	}
 	for _, s := range st.opts.Sources {
 		v.Sources = append(v.Sources, s.Name)
@@ -646,13 +652,31 @@ func (st *state) report(err error) {
 	}
 }
 
-func (st *state) setInput(input string) {
+// expand is the input expanded by Vim, with the option expandInput.
+func (st *state) expand(input string) string {
+	if !boolOr(st.opts.ExpandInput, false) || input == "" || strings.HasPrefix(input, "<") || st.h == nil {
+		// expand() breaks an input that starts with "<" (as ddu.vim).
+		return input
+	}
+	r, err := st.h.Call(st.s.base, "expand", input)
+	if s, ok := r.(string); ok && err == nil {
+		return s
+	}
+	return input
+}
+
+func (st *state) setInput(typed string) {
+	if typed == st.typed {
+		return
+	}
+	st.typed = typed
+	input := st.expand(typed)
+	st.dirty = true
 	if input == st.input {
 		return
 	}
 	st.input = input
 	st.ctx.Input = input
-	st.dirty = true
 	var volatile []int
 	for i := range st.opts.Sources {
 		if boolOr(st.opts.sourceOptions(i).Volatile, false) {
