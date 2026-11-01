@@ -5,12 +5,88 @@ function! goda_fi#kind#file#print(msg) abort
   echomsg '[goda-fi-kind-file] ' . a:msg
 endfunction
 
-function! goda_fi#kind#file#confirm(msg) abort
+" confirm(): with {msg} only, Yes or not; with {choices} and {default}, the
+" choice ({default} when it fails).
+function! goda_fi#kind#file#confirm(msg, ...) abort
+  let [choices, default] = a:0 ? [a:1, get(a:000, 1, 1)] : ["&Yes\n&No\n&Cancel", 2]
   try
-    return confirm(a:msg, "&Yes\n&No\n&Cancel", 2) == 1
+    let n = confirm(a:msg, choices, default)
   catch
-    return v:false
+    let n = a:0 ? default : 0
   endtry
+  return a:0 ? n : n == 1
+endfunction
+
+" input() in the directory {cwd} (for its completion): "" when cancelled.
+function! goda_fi#kind#file#cwd_input(cwd, prompt, text, completion) abort
+  echo '' | redraw
+  let prev = getcwd()
+  try
+    if a:cwd !=# '' && isdirectory(a:cwd)
+      call chdir(a:cwd)
+    endif
+    return input(a:prompt, a:text, a:completion)
+  catch /^Vim:Interrupt/
+  finally
+    call chdir(prev)
+  endtry
+  return ''
+endfunction
+
+function! goda_fi#kind#file#getreg(reg) abort
+  return getreg(a:reg)
+endfunction
+
+" The buffer of the file {path} (-1: none).
+function! s:buffer_of(path) abort
+  " bufnr() matches parts of names: only a buffer of this very name.
+  return bufexists(a:path) ? bufnr(a:path) : -1
+endfunction
+
+" Is the buffer of the file {path} modified?
+function! goda_fi#kind#file#modified(path) abort
+  let bufnr = s:buffer_of(a:path)
+  return bufnr > 0 && getbufvar(bufnr, '&modified') ? v:true : v:false
+endfunction
+
+" The file {old} was renamed {new}: so is its buffer.
+function! goda_fi#kind#file#buffer_rename(old, new) abort
+  let bufnr = s:buffer_of(a:old)
+  if bufnr < 0 || !bufloaded(bufnr)
+    return
+  endif
+  let hidden = &hidden
+  set hidden
+  let save = bufnr('%')
+  try
+    noautocmd silent! execute 'buffer' bufnr
+    silent! execute (&l:buftype ==# '' ? 'saveas!' : 'file') fnameescape(a:new)
+    if &l:buftype ==# ''
+      " The buffer of the old name.
+      silent! bdelete! #
+    endif
+    noautocmd silent! execute 'buffer' save
+  finally
+    let &hidden = hidden
+  endtry
+endfunction
+
+" The file {path} was deleted: its buffer too.
+function! goda_fi#kind#file#buffer_delete(path) abort
+  let bufnr = s:buffer_of(a:path)
+  if bufnr < 0
+    return
+  endif
+  let winid = get(win_findbuf(bufnr), 0, -1)
+  if winid > 0
+    let save = win_getid()
+    call win_gotoid(winid)
+    noautocmd silent enew
+    execute 'silent! bdelete!' bufnr
+    call win_gotoid(save)
+  else
+    execute 'silent! bdelete!' bufnr
+  endif
 endfunction
 
 function! s:path(t) abort

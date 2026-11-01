@@ -18,7 +18,8 @@ autoAction) work, with:
 - columns: `filename`
 
 Trees are shown by `ff` (`displayTree`, `expandItem`) and by the filer `filer`
-(ddu-ui-filer, with the column `filename`); its file operations come later.
+(ddu-ui-filer, with the column `filename`), with the file operations of
+ddu-kind-file (copy, move, paste, rename, delete, trash, undo...).
 
 What it does about the drawing: one goroutine per session takes every change
 in order, every redraw carries a version and is applied by Vim in one call

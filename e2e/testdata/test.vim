@@ -256,6 +256,71 @@ function! s:run() abort
   call s:check('filer root item', goda_fi#ui#get_item().__level, -1)
   call goda_fi#ui#do_action('quit')
 
+  " The file operations of the filer, in a directory of their own: input()
+  " gets what is typed ahead, confirm() (not for typeahead in every
+  " editor) the answers given.
+  runtime autoload/goda_fi/kind/file.vim
+  let g:confirm_answers = []
+  function! goda_fi#kind#file#confirm(msg, ...) abort
+    let n = empty(g:confirm_answers) ? 0 : remove(g:confirm_answers, 0)
+    return a:0 ? n : n == 1
+  endfunction
+  let ops = tempname()
+  call mkdir(ops . '/sub', 'p')
+  call writefile(['a'], ops . '/a.txt')
+  call s:start({'name': 'ops', 'ui': 'filer',
+        \ 'sources': [{'name': 'file', 'options': {'path': ops}}],
+        \ 'actionOptions': {'_': {'quit': v:false}},
+        \ 'uiParams': {'filer': {'sort': 'filename', 'sortTreesFirst': v:true}}})
+  call s:wait('ops', {-> s:flines('ops')[1:] ==# ['sub/', 'a.txt']})
+  call cursor(3, 1)
+  call feedkeys("new.txt,newdir/\<CR>", 't')
+  call goda_fi#ui#do_action('itemAction', {'name': 'newFile'})
+  call s:wait('newFile', {-> s:flines('ops')[1:] ==# ['newdir/', 'sub/', 'a.txt', 'new.txt']})
+  call s:check('newFile', s:flines('ops')[1:], ['newdir/', 'sub/', 'a.txt', 'new.txt'])
+  call s:check('newFile cursor', getline('.'), 'newdir/')
+  call cursor(5, 1)
+  call feedkeys("\<C-u>" . ops . "/sub/renamed.txt\<CR>", 't')
+  call goda_fi#ui#do_action('itemAction', {'name': 'rename'})
+  call s:wait('rename', {-> filereadable(ops . '/sub/renamed.txt')})
+  call s:check('rename', [filereadable(ops . '/new.txt'), filereadable(ops . '/sub/renamed.txt')], [0, 1])
+  call s:wait('rename lines', {-> s:flines('ops')[1:] ==# ['newdir/', 'sub/', 'a.txt']})
+  " Copied and pasted where it is: "Underbar".
+  call cursor(4, 1)
+  call goda_fi#ui#do_action('itemAction', {'name': 'copy'})
+  let g:confirm_answers = [3]
+  call goda_fi#ui#do_action('itemAction', {'name': 'paste'})
+  call s:wait('paste', {-> s:flines('ops')[1:] ==# ['newdir/', 'sub/', 'a.txt', 'a.txt_']})
+  call s:check('paste', s:flines('ops')[1:], ['newdir/', 'sub/', 'a.txt', 'a.txt_'])
+  let g:confirm_answers = [1]
+  call goda_fi#ui#do_action('itemAction', {'name': 'undo'})
+  call s:wait('undo', {-> s:flines('ops')[1:] ==# ['newdir/', 'sub/', 'a.txt']})
+  call s:check('undo', s:flines('ops')[1:], ['newdir/', 'sub/', 'a.txt'])
+  " Several renamed in a buffer of their names.
+  call cursor(4, 1)
+  call goda_fi#ui#do_action('toggleSelectItem')
+  call cursor(3, 1)
+  call goda_fi#ui#do_action('toggleSelectItem')
+  call goda_fi#ui#do_action('itemAction', {'name': 'rename'})
+  let exbuf = get(filter(getbufinfo(), 'v:val.name =~# "exrename"'), 0, {'bufnr': -1}).bufnr
+  call s:check('exrename', getbufline(exbuf, 1, '$'), ['a.txt', 'sub/'])
+  call win_execute(bufwinid(exbuf), "call setline(1, ['b.txt', 'sub2/']) | write")
+  call s:check('exrename done', [isdirectory(ops . '/sub2'), filereadable(ops . '/b.txt'),
+        \ filereadable(ops . '/sub2/renamed.txt')], [1, 1, 1])
+  call win_execute(bufwinid(exbuf), 'normal q')
+  call s:wait('exrename refresh', {-> s:flines('ops')[1:] ==# ['newdir/', 'sub2/', 'b.txt']})
+  call s:check('exrename refresh', s:flines('ops')[1:], ['newdir/', 'sub2/', 'b.txt'])
+  call win_gotoid(bufwinid(bufnr('goda-fi-filer-ops')))
+  call cursor(2, 1)
+  let g:confirm_answers = [1]
+  call goda_fi#ui#do_action('itemAction', {'name': 'delete'})
+  call s:wait('delete', {-> s:flines('ops')[1:] ==# ['sub2/', 'b.txt']})
+  call s:check('delete', [s:flines('ops')[1:], isdirectory(ops . '/newdir')], [['sub2/', 'b.txt'], 0])
+  call s:check('confirm answers', g:confirm_answers, [])
+  call goda_fi#ui#do_action('quit')
+  call delete(ops, 'rf')
+  runtime autoload/goda_fi/kind/file.vim
+
   " buffer: the buffers opened.
   edit b.go
   call s:start({'name': 'buf', 'sources': ['buffer']})

@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,11 +34,12 @@ type ActionData struct {
 	Text string `json:"text,omitempty"`
 }
 
-// Kind is the kind "file".
-type Kind struct{}
+// Kind is the kind "file". Its clipboard and what undo takes back are
+// those of the value New returns, shared by the sessions.
+type Kind struct{ st *state }
 
 // New returns the kind, to add to the builder.
-func New() Kind { return Kind{} }
+func New() Kind { return Kind{st: &state{}} }
 
 func (Kind) Name() string { return "file" }
 
@@ -85,10 +87,10 @@ func vimAction(desc, fn string, flags fi.ActionFlags) fi.Action {
 	}
 }
 
-// Actions are those of ddu-kind-file that do not change files (those come
-// with the filer).
-func (Kind) Actions() map[string]fi.Action {
-	return map[string]fi.Action{
+// Actions are ddu-kind-file's.
+func (k Kind) Actions() map[string]fi.Action {
+	actions := k.fileActions()
+	maps.Copy(actions, map[string]fi.Action{
 		"open": {
 			Description: "Open the items (params: command, default \"edit\"; maxSize).",
 			Run:         open,
@@ -105,7 +107,8 @@ func (Kind) Actions() map[string]fi.Action {
 			Description: "Make the directory of the item the path of the source (params: path; \"..\" for the parent).",
 			Run:         narrow,
 		},
-	}
+	})
+	return actions
 }
 
 // directory is the directory of a target: itself, or the one it is in.

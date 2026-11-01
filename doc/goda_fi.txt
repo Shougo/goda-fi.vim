@@ -609,6 +609,34 @@ file		ext/kind/file (ddu-kind-file). Actions: open (params:
 		source; params: path, ".." for the parent; several
 		items: a session pushed with their directories).
 		Previews files and buffers.
+		The actions of the filer, done by the binary, asked in
+		Vim (input(), confirm()):
+		  copy, move, link (params: mode "absolute",
+		  "relative" or "hard")	the items to the clipboard
+		  paste		what the clipboard holds, in the
+				directory of the item (the tree under
+				the cursor when it is expanded); a file
+				there already: Force, Time (when newer),
+				Underbar ("name_"), No, Rename
+		  clipYank	the paths to the register "+, for
+				clipCopy and clipMove (another Vim)
+		  clipCopy, clipMove	the files of the register "+
+		  newFile	files (comma separated; "name/" is a
+				directory), newDirectory directories
+		  rename, edit	the item; several in a buffer of their
+				names: write it (:w) to rename them
+		  delete	(asked)
+		  trash		(asked) with kindParams trashCommand
+				(["gio", "trash"])
+		  undo		takes back the last copy, move, link,
+				rename, newFile or newDirectory
+		  executeSystem	opens the file with the program of the
+				system (params: method, "" for the one of
+				the system, "nvim-open", or a command:
+				"xdg-open", "open", "wslview", ...)
+		The clipboard and undo are shared by the sessions; the
+		buffers of the files moved, renamed or deleted follow
+		them, and a modified one is not moved.
 
 word		ext/kind/word (ddu-kind-word). Actions: append, insert,
 		feedkeys, yank. Previews the text.
@@ -745,8 +773,7 @@ DIFFERENCES FROM DDU.VIM                                         *goda-fi-ddu*
   its parent, and the filters apply to its items.
 - The filer is the UI ff with other defaults (|goda-fi-ui-filer|);
   sortCustom is not there.
-- Not yet: floating windows in Vim (the preview is a popup), the file
-  operations of the filer (copy, move, rename...), isGrouped of
+- Not yet: floating windows in Vim (the preview is a popup), isGrouped of
   expandItem, chooseAction, Vim side aliases (ddu#custom#alias()),
   ddu#ui#save_cmaps().
 
