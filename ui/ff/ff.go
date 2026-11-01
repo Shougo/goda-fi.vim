@@ -240,7 +240,10 @@ type render struct {
 	// UI: "ff" or "filer" (the buffer, the filetype).
 	UI string `json:"ui"`
 	// Levels are those of the items in the tree, by line.
-	Levels     []int          `json:"levels"`
+	Levels []int `json:"levels"`
+	// Path is that of the first source (the filer's
+	// b:goda_fi_ui_filer_path and t:goda_fi_ui_filer_path).
+	Path       string         `json:"path"`
 	Open       bool           `json:"open"`
 	Lines      []string       `json:"lines"`
 	IDs        []uint64       `json:"ids"`
@@ -353,6 +356,7 @@ func (u *UI) Redraw(ctx context.Context, h sdk.Host, v *fi.View) error {
 		Name:       v.Context.Name,
 		UI:         u.name,
 		Levels:     make([]int, n),
+		Path:       rootPath(v),
 		Open:       v.Open || !s.shown,
 		Lines:      make([]string, n),
 		IDs:        make([]uint64, n),
@@ -487,7 +491,58 @@ func (u *UI) Actions() map[string]fi.UIAction {
 		"redraw":              redraw,
 		"expandItem":          expandItem,
 		"collapseItem":        collapseItem,
+		"togglePreview":       togglePreview,
+		"updateOptions":       updateOptions,
+		"checkItems":          checkItems,
+		"chooseAction":        chooseAction,
+		"inputActionNames":    inputActionNames,
 	}
+}
+
+// togglePreview is preview with params.toggle.
+func togglePreview(ctx context.Context, h sdk.Host, a fi.UIActionArgs) (fi.ActionFlags, error) {
+	p := fi.Params{}
+	for k, v := range a.ActionParams {
+		p[k] = v
+	}
+	p["toggle"] = true
+	a.ActionParams = p
+	return preview(ctx, h, a)
+}
+
+// updateOptions merges params into the options of the session (as
+// ddu.vim's): what is gathered and drawn next follows them (the action
+// redraw).
+func updateOptions(_ context.Context, _ sdk.Host, a fi.UIActionArgs) (fi.ActionFlags, error) {
+	return fi.None, a.Session.UpdateOptions(a.ActionParams)
+}
+
+// checkItems gathers again when the files changed (the directories of the
+// source file).
+func checkItems(ctx context.Context, _ sdk.Host, a fi.UIActionArgs) (fi.ActionFlags, error) {
+	a.Session.CheckItems(ctx)
+	return fi.None, nil
+}
+
+// chooseAction lists the item actions of the items in a session pushed on
+// this one (goda_fi#pop() goes back); the one chosen runs on them.
+func chooseAction(ctx context.Context, _ sdk.Host, a fi.UIActionArgs) (fi.ActionFlags, error) {
+	items := targets(a)
+	if len(items) == 0 {
+		return fi.None, nil
+	}
+	return fi.None, a.Session.ChooseAction(ctx, items)
+}
+
+// inputActionNames gives Vim the item actions of the items, for
+// inputAction (autoload/goda_fi/ui/ff.vim): goda_fi#ui#ff#_input_action().
+func inputActionNames(ctx context.Context, h sdk.Host, a fi.UIActionArgs) (fi.ActionFlags, error) {
+	items := targets(a)
+	if len(items) == 0 {
+		return fi.None, nil
+	}
+	_, err := h.Call(ctx, "goda_fi#ui#ff#_input_action", a.View.Context.Name, a.Session.ItemActionNames(items))
+	return fi.None, err
 }
 
 // treePrefix is what goes before an item with displayTree, as ddu-ui-ff's.
@@ -513,7 +568,8 @@ func expandItem(_ context.Context, _ sdk.Host, a fi.UIActionArgs) (fi.ActionFlag
 		Mode     string `json:"mode"`
 		MaxLevel int    `json:"maxLevel"`
 		IsInTree bool   `json:"isInTree"`
-		// ddu.vim's; one tree is not joined with its only child yet.
+		// IsGrouped: a tree that is the only item of its parent goes in
+		// the line of its parent ("a/b/").
 		IsGrouped bool `json:"isGrouped"`
 	}
 	if err := fi.Decode(a.ActionParams, &p); err != nil {
@@ -528,7 +584,7 @@ func expandItem(_ context.Context, _ sdk.Host, a fi.UIActionArgs) (fi.ActionFlag
 		}
 		return fi.None, nil
 	}
-	a.Session.ExpandItem(*a.Item, fi.ExpandOptions{MaxLevel: p.MaxLevel, InTree: p.IsInTree})
+	a.Session.ExpandItem(*a.Item, fi.ExpandOptions{MaxLevel: p.MaxLevel, InTree: p.IsInTree, Grouped: p.IsGrouped})
 	return fi.Redraw, nil
 }
 
@@ -642,4 +698,11 @@ func preview(ctx context.Context, h sdk.Host, a fi.UIActionArgs) (fi.ActionFlags
 		"maxSize": up.PreviewMaxSize,
 	}))
 	return fi.None, err
+}
+
+func rootPath(v *fi.View) string {
+	if len(v.Roots) == 0 {
+		return ""
+	}
+	return v.Roots[0].Word
 }

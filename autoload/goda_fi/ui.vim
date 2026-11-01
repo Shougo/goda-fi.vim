@@ -6,17 +6,27 @@ let s:uis = {}
 
 function! goda_fi#ui#_register(name, ui) abort
   let s:uis[a:name] = a:ui
+  let s:last = a:name
 endfunction
 
+" The session: {name}, that of the current buffer, or the last one shown
+" (from another buffer: checkItems in autocommands, say).
 function! s:name(name) abort
-  return a:name !=# '' ? a:name : get(b:, 'goda_fi_name', '')
+  if a:name !=# ''
+    return a:name
+  endif
+  let name = get(b:, 'goda_fi_name', '')
+  if name ==# '' && get(s:, 'last', '') !=# '' && goda_fi#ui#visible(s:last)
+    let name = s:last
+  endif
+  return name
 endfunction
 
 " Run the UI action {action} ("itemAction", "toggleSelectItem", ...).
 function! goda_fi#ui#do_action(action, params = {}, name = '') abort
   let name = s:name(a:name)
   if name ==# ''
-    call goda_fi#util#print_error('goda-fi: not in a goda-fi buffer')
+    " No session shown.
     return
   endif
   let ui = get(s:uis, name, '')
@@ -61,4 +71,19 @@ function! goda_fi#ui#visible(name = '') abort
   let name = s:name(a:name)
   let ui = get(s:uis, name, '')
   return ui !=# '' && goda_fi#ui#{ui}#_visible(name)
+endfunction
+
+" The action chosen (the kind action): once its action is done, the session
+" of the actions goes away and the action runs on the items.
+function! goda_fi#ui#_do_chosen(name, action, ids) abort
+  call timer_start(0, {-> s:do_chosen(a:name, a:action, a:ids)})
+endfunction
+
+function! s:do_chosen(name, action, ids) abort
+  try
+    call goda_fi#pop(a:name)
+    call goda_fi#item_action(a:name, a:action, map(copy(a:ids), {_, id -> {'__id': id}}))
+  catch
+    call goda_fi#util#print_error(v:exception)
+  endtry
 endfunction

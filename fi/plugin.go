@@ -29,7 +29,7 @@ func (e *engine) Name() string { return PluginName }
 // handlerNames are the methods of the plugin (brokenPlugin fails them).
 var handlerNames = []string{
 	"start", "redraw", "uiAction", "itemAction", "itemActionNames",
-	"getItem", "getItems", "getContext", "event", "quit", "pop", "sessions",
+	"getItem", "getItems", "getContext", "getCurrent", "event", "quit", "pop", "sessions",
 }
 
 func (e *engine) Handlers() map[string]sdk.Handler {
@@ -59,6 +59,9 @@ func (e *engine) Handlers() map[string]sdk.Handler {
 		"getItems": e.getItems,
 		// getContext(name) -> the context of the session.
 		"getContext": e.getContext,
+		// getCurrent(name) -> the options of the session, as set
+		// (ddu#custom#get_current()); {} without the session.
+		"getCurrent": e.getCurrent,
 		// event(name, event, version): "close" (the UI window was closed,
 		// as drawn in version), "drawn" (version was drawn, UIAcker).
 		"event": e.event,
@@ -200,8 +203,18 @@ func (e *engine) redraw(_ context.Context, _ sdk.Host, params []any) (any, error
 		return nil, err
 	}
 	opts := argMap(params, 1)
+	// The order of goda_fi#redraw(): the notifications may be taken in
+	// another one.
+	var seq int64
+	switch n := opts["__seq"].(type) {
+	case int64:
+		seq = n
+	case float64:
+		seq = int64(n)
+	}
 	s.do(func(st *state) {
-		if in, ok := opts["input"].(string); ok {
+		if in, ok := opts["input"].(string); ok && (seq == 0 || seq > st.inputSeq) {
+			st.inputSeq = max(st.inputSeq, seq)
 			st.setInput(in)
 		}
 		if r, _ := opts["refresh"].(bool); r {
@@ -328,6 +341,19 @@ func (e *engine) getItems(_ context.Context, _ sdk.Host, params []any) (any, err
 	return out, nil
 }
 
+// contextOf is the context of the session name (GatherArgs.ContextOf).
+func (e *engine) contextOf(name string) (Context, bool) {
+	s, err := e.session(name)
+	if err != nil {
+		return Context{}, false
+	}
+	var c Context
+	if err := s.call(func(st *state) error { c = st.ctx; return nil }); err != nil {
+		return Context{}, false
+	}
+	return c, true
+}
+
 func (e *engine) getContext(_ context.Context, _ sdk.Host, params []any) (any, error) {
 	s, err := e.session(argString(params, 0))
 	if err != nil {
@@ -336,6 +362,39 @@ func (e *engine) getContext(_ context.Context, _ sdk.Host, params []any) (any, e
 	var c Context
 	_ = s.call(func(st *state) error { c = st.ctx; return nil })
 	return c, nil
+}
+
+func (e *engine) getCurrent(_ context.Context, _ sdk.Host, params []any) (any, error) {
+	s, err := e.session(argString(params, 0))
+	if err != nil {
+		return map[string]any{}, nil
+	}
+	var p patch
+	_ = s.call(func(st *state) error { p = st.patch; return nil })
+	return dropNil(p), nil
+}
+
+// dropNil is a patch without its unset values (null in Vim).
+func dropNil(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		out := map[string]any{}
+		for k, e := range x {
+			if e != nil {
+				out[k] = dropNil(e)
+			}
+		}
+		return out
+	case []any:
+		out := make([]any, 0, len(x))
+		for _, e := range x {
+			if e != nil {
+				out = append(out, dropNil(e))
+			}
+		}
+		return out
+	}
+	return v
 }
 
 func (e *engine) event(_ context.Context, _ sdk.Host, params []any) (any, error) {

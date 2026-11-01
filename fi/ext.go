@@ -2,6 +2,7 @@ package fi
 
 import (
 	"context"
+	"time"
 
 	"github.com/Shougo/goda.vim/sdk"
 )
@@ -34,6 +35,8 @@ type GatherArgs struct {
 	// Parent is the item expanded whose children are gathered (its
 	// TreePath is SourceOptions.Path), nil for the items of the top.
 	Parent *Item
+	// ContextOf is the context of the session name, false without it.
+	ContextOf func(name string) (Context, bool)
 }
 
 // SourceIniter is a Source that prepares something (once per session) before
@@ -223,6 +226,25 @@ type Session interface {
 	// CollapseItem hides the children of a tree item, or those of its
 	// parent when it is not expanded (as ddu-ui-ff's collapseItem).
 	CollapseItem(item Item)
+	// UpdateOptions merges options into those of the session (ddu.vim's
+	// updateOptions).
+	UpdateOptions(options Params) error
+	// CheckItems gathers again the sources (and the trees expanded) whose
+	// items changed (SourceUpdateChecker); it reports whether one did.
+	CheckItems(ctx context.Context) bool
+	// ChooseAction starts a session, pushed on this one, of the item
+	// actions of items: the one chosen runs on them.
+	ChooseAction(ctx context.Context, items []Item) error
+	// ItemActionDescriptions are the item actions of items, with their
+	// descriptions.
+	ItemActionDescriptions(items []Item) map[string]string
+}
+
+// SourceUpdateChecker is a Source that tells whether what it gathers
+// changed since it gathered (the UI action checkItems): a.SourceOptions.Path
+// is that of the tree for one expanded (a.Parent).
+type SourceUpdateChecker interface {
+	Updated(ctx context.Context, h sdk.Host, a GatherArgs, since time.Time) (bool, error)
 }
 
 // ExpandOptions are those of Session.ExpandItem, as ddu.vim's.
@@ -232,6 +254,9 @@ type ExpandOptions struct {
 	MaxLevel int
 	// InTree: the cursor goes to the first child.
 	InTree bool
+	// Grouped: a tree that is the only item of its parent is shown in
+	// the line of its parent ("a/b/"), expanded too, and so on.
+	Grouped bool
 }
 
 // View is a state of a session, for a UI to show.

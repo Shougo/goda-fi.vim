@@ -16,6 +16,8 @@ function! s:st(name) abort
           \ 'version': 0,
           \ 'ui': 'ff',
           \ 'levels': [],
+          \ 'opened_split': '',
+          \ 'reopening': 0,
           \ 'closed': 1,
           \ 'bufnr': -1,
           \ 'ids': [],
@@ -70,6 +72,18 @@ function! s:redraw(name, r) abort
   let bufnr = s:buffer(a:name)
   let winid = bufwinid(bufnr)
   let opened = 0
+  if winid > 0 && !st.closed && st.opened_split !=# ''
+        \ && s:split(a:r.params) !=# st.opened_split && winnr('$') > 1
+    " The split changed (updateOptions): opened again.
+    let st.reopening = 1
+    try
+      call win_execute(winid, 'close')
+    finally
+      let st.reopening = 0
+    endtry
+    let winid = s:open_window(a:name, bufnr, a:r.params)
+    let opened = 1
+  endif
   if a:r.open
     let st.closed = 0
     if a:r.prevWinid > 0 && a:r.prevWinid != winid
@@ -89,13 +103,19 @@ function! s:redraw(name, r) abort
   let st.ids = a:r.ids
   let st.levels = get(a:r, 'levels', [])
   let st.input = a:r.input
+  if st.ui ==# 'filer' && get(a:r, 'path', '') !=# ''
+    " As ddu-ui-filer's b:ddu_ui_filer_path and t:ddu_ui_filer_path.
+    call setbufvar(bufnr, 'goda_fi_ui_filer_path', a:r.path)
+    let tab = winid > 0 ? win_id2tabwin(winid)[0] : tabpagenr()
+    call settabvar(tab, 'goda_fi_ui_filer_path', a:r.path)
+  endif
   call setbufvar(bufnr, 'goda_fi_version', a:r.version)
   call s:highlight(bufnr, a:r)
 
   if winid > 0
     let n = len(a:r.lines)
     if a:r.params.autoResize
-      call s:auto_resize(winid, n, a:r.params)
+      call s:auto_resize(winid, a:r.lines, a:r.params)
     endif
     if a:r.cursor > 0
       let row = a:r.cursor
@@ -186,6 +206,7 @@ endfunction
 function! s:open_window(name, bufnr, p) abort
   let st = s:st(a:name)
   let split = s:split(a:p)
+  let st.opened_split = split
   if split ==# 'tab'
     tabnew
     let st.prev_bufnr = bufnr('%')
@@ -241,13 +262,19 @@ function! s:open_float(bufnr, p) abort
 endfunction
 
 " No higher than the items (autoResize).
-function! s:auto_resize(winid, n, p) abort
-  let height = max([1, min([a:n, s:eval(a:p.winHeight, a:p)])])
+" The window as high as its lines (horizontal, floating), or as wide
+" (vertical), within winHeight and winWidth.
+function! s:auto_resize(winid, lines, p) abort
+  let height = max([1, min([len(a:lines), s:eval(a:p.winHeight, a:p)])])
   let split = s:split(a:p)
   if split ==# 'floating'
     call nvim_win_set_config(a:winid, {'height': height})
   elseif split ==# 'horizontal'
     call win_execute(a:winid, 'resize ' . height)
+  elseif split ==# 'vertical'
+    let width = max([1] + map(copy(a:lines), 'strdisplaywidth(substitute(v:val, " *$", "", ""))'))
+    let width = min([width + 1, s:eval(a:p.winWidth, a:p)])
+    call win_execute(a:winid, 'vertical resize ' . width)
   endif
 endfunction
 
@@ -351,6 +378,9 @@ endfunction
 " The window was closed (or shows another buffer).
 function! s:on_close(name) abort
   let st = s:st(a:name)
+  if st.reopening
+    return
+  endif
   if !st.closed
     let st.closed = 1
     if goda#is_running('fi')
@@ -390,6 +420,9 @@ function! goda_fi#ui#ff#_local_action(name, action, params) abort
     call s:move(a:name, get(a:params, 'count', 1), get(a:params, 'loop', v:false))
   elseif a:action ==# 'cursorPrevious'
     call s:move(a:name, -get(a:params, 'count', 1), get(a:params, 'loop', v:false))
+  elseif a:action ==# 'inputAction'
+    call goda#request('fi', 'uiAction', a:name, 'inputActionNames', a:params,
+          \ goda_fi#ui#ff#_pos(a:name))
   elseif a:action ==# 'cursorTreeTop'
     call s:tree_move(a:name, -1)
   elseif a:action ==# 'cursorTreeBottom'
@@ -409,6 +442,29 @@ function! goda_fi#ui#ff#_local_action(name, action, params) abort
     return 0
   endif
   return 1
+endfunction
+
+" inputAction: the binary gives the names of the actions (in a request: the
+" action is asked for, and run, once it is done).
+function! goda_fi#ui#ff#_input_action(name, names) abort
+  let s:action_names = a:names
+  call timer_start(0, {-> s:input_action(a:name)})
+endfunction
+
+function! s:input_action(name) abort
+  try
+    let action = input('Action: ', '', 'customlist,goda_fi#ui#ff#_complete_action')
+  catch /^Vim:Interrupt/
+    return
+  endtry
+  redraw
+  if action !=# ''
+    call goda_fi#ui#do_action('itemAction', {'name': action}, a:name)
+  endif
+endfunction
+
+function! goda_fi#ui#ff#_complete_action(arglead, cmdline, cursorpos) abort
+  return filter(copy(get(s:, 'action_names', [])), 'stridx(v:val, a:arglead) == 0')
 endfunction
 
 " cursorTreeTop (dir -1) and cursorTreeBottom (1): the cursor to the first

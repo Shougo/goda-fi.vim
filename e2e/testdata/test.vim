@@ -321,6 +321,84 @@ function! s:run() abort
   call delete(ops, 'rf')
   runtime autoload/goda_fi/kind/file.vim
 
+  " The filer of a configuration of ddu-ui-filer: limitPath, the path
+  " variables, updateOptions, checkItems, isGrouped, chooseAction,
+  " inputAction, autoResize of a vertical split.
+  let fx = tempname()
+  call mkdir(fx . '/a/b/c', 'p')
+  call writefile(['x'], fx . '/a/b/c/x.txt')
+  call writefile(['y'], fx . '/y.txt')
+  call s:start({'name': 'fx', 'ui': 'filer',
+        \ 'sources': [{'name': 'file', 'options': {'path': fx, 'limitPath': fx,
+        \   'columns': ['filename']}}],
+        \ 'actionOptions': {'_': {'quit': v:false}},
+        \ 'uiParams': {'filer': {'sort': 'filename', 'sortTreesFirst': v:true,
+        \   'split': 'vertical', 'autoResize': v:true}}})
+  call s:wait('fx', {-> s:flines('fx')[1:] ==# ['+ a/', '  y.txt']})
+  call s:check('filer path', [b:goda_fi_ui_filer_path, t:goda_fi_ui_filer_path], [fx, fx])
+  call s:check('autoResize vertical', winwidth(0),
+        \ max(map(getline(1, '$'), 'strdisplaywidth(substitute(v:val, " *$", "", ""))')) + 1)
+  " limitPath: not above it.
+  call goda_fi#ui#do_action('itemAction', {'name': 'narrow', 'params': {'path': '..'}})
+  sleep 200m
+  call s:check('limitPath', [s:flines('fx')[1:], b:goda_fi_ui_filer_path], [['+ a/', '  y.txt'], fx])
+  " isGrouped.
+  call cursor(2, 1)
+  call goda_fi#ui#do_action('expandItem', {'mode': 'toggle', 'isGrouped': v:true})
+  call s:wait('isGrouped', {-> s:flines('fx')[1:] ==# ['- a/b/c/', '   x.txt', '  y.txt']})
+  call s:check('isGrouped', s:flines('fx')[1:], ['- a/b/c/', '   x.txt', '  y.txt'])
+  call goda_fi#ui#do_action('expandItem', {'mode': 'toggle', 'isGrouped': v:true})
+  call s:wait('isGrouped collapse', {-> s:flines('fx')[1:] ==# ['+ a/', '  y.txt']})
+  " updateOptions and goda_fi#custom#get_current().
+  call s:check('get_current', goda_fi#custom#get_current().uiParams.filer.sort, 'filename')
+  call goda_fi#ui#do_action('updateOptions', {'uiParams': {'filer': {'displayRoot': v:false}}})
+  call goda_fi#ui#do_action('redraw')
+  call s:wait('updateOptions', {-> s:flines('fx') ==# ['+ a/', '  y.txt']})
+  call s:check('updateOptions', s:flines('fx'), ['+ a/', '  y.txt'])
+  " checkItems, from another window.
+  call writefile(['z'], fx . '/z.txt')
+  wincmd p
+  call goda_fi#ui#do_action('checkItems')
+  call s:wait('checkItems', {-> s:flines('fx') ==# ['+ a/', '  y.txt', '  z.txt']})
+  call s:check('checkItems', s:flines('fx'), ['+ a/', '  y.txt', '  z.txt'])
+  call win_gotoid(bufwinid(bufnr('goda-fi-filer-fx')))
+  " inputAction: the name typed.
+  call cursor(2, 1)
+  call setreg('"', '')
+  call feedkeys("yank\<CR>", 't')
+  call goda_fi#ui#do_action('inputAction')
+  call s:wait('inputAction', {-> getreg('"') ==# fx . '/y.txt'})
+  call s:check('inputAction', getreg('"'), fx . '/y.txt')
+  " chooseAction: a session of the actions, pushed; the one chosen runs on
+  " the items, back in the filer.
+  call setreg('"', '')
+  call cursor(3, 1)
+  call goda_fi#ui#do_action('chooseAction')
+  call s:wait('chooseAction', {-> index(map(s:lines('fx'), 'matchstr(v:val, "^\\S\\+")'), 'yank') >= 0})
+  call cursor(index(map(s:lines('fx'), 'matchstr(v:val, "^\\S\\+")'), 'yank') + 1, 1)
+  call goda_fi#ui#do_action('itemAction')
+  call s:wait('chosen', {-> getreg('"') ==# fx . '/z.txt'})
+  call s:check('chosen', getreg('"'), fx . '/z.txt')
+  call s:wait('chosen back', {-> bufnr('%') == bufnr('goda-fi-filer-fx')})
+  call s:check('chosen back', s:flines('fx'), ['+ a/', '  y.txt', '  z.txt'])
+  " pathhistory: the paths narrow left.
+  call cursor(1, 1)
+  call goda_fi#ui#do_action('itemAction', {'name': 'narrow'})
+  call s:wait('narrow a', {-> b:goda_fi_ui_filer_path ==# fx . '/a'})
+  call goda_fi#ui#do_action('itemAction', {'name': 'narrow', 'params': {'path': '..'}})
+  call s:wait('narrow back', {-> b:goda_fi_ui_filer_path ==# fx})
+  call s:start({'name': 'ph', 'sources': ['pathhistory']})
+  call s:check('pathhistory', s:wait_lines('ph', [fx . '/a', fx]), [fx . '/a', fx])
+  call goda_fi#ui#do_action('quit')
+  call win_gotoid(bufwinid(bufnr('goda-fi-filer-fx')))
+  " The split changed: opened again.
+  call goda_fi#ui#do_action('updateOptions', {'uiParams': {'filer': {'split': 'horizontal', 'autoResize': v:false}}})
+  call goda_fi#ui#do_action('redraw', {'method': 'uiRedraw'})
+  call s:wait('split', {-> winwidth(bufwinid(bufnr('goda-fi-filer-fx'))) == &columns})
+  call s:check('split', winwidth(bufwinid(bufnr('goda-fi-filer-fx'))), &columns)
+  call goda_fi#ui#do_action('quit', {}, 'fx')
+  call delete(fx, 'rf')
+
   " buffer: the buffers opened.
   edit b.go
   call s:start({'name': 'buf', 'sources': ['buffer']})

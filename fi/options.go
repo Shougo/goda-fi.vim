@@ -120,6 +120,9 @@ type SourceOptions struct {
 	// Columns make what the items show (Display), by name, one after the
 	// other ("filename", say).
 	Columns []string `json:"columns"`
+	// LimitPath: an action does not change Path to a directory that is not
+	// it or under it (narrow "..", say).
+	LimitPath string `json:"limitPath,omitempty"`
 }
 
 // FilterOptions are the options of a filter, by name ("_" for every one).

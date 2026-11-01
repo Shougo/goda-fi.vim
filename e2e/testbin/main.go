@@ -21,6 +21,7 @@ import (
 	"github.com/Shougo/goda-fi.vim/ext/source/filepoint"
 	"github.com/Shougo/goda-fi.vim/ext/source/filerec"
 	"github.com/Shougo/goda-fi.vim/ext/source/line"
+	"github.com/Shougo/goda-fi.vim/ext/source/pathhistory"
 	"github.com/Shougo/goda-fi.vim/ext/source/register"
 	"github.com/Shougo/goda-fi.vim/ext/source/rg"
 	"github.com/Shougo/goda-fi.vim/fi"
@@ -41,6 +42,7 @@ func main() {
 	b.AddSource(fileold.New())
 	b.AddSource(line.New(line.Params{}))
 	b.AddSource(register.New())
+	b.AddSource(pathhistory.New())
 	b.AddSource(rg.New(rg.Params{}))
 	// An alias with params of its own.
 	b.AddSourceAs("filels", fileexternal.New(fileexternal.Params{Cmd: []string{"ls"}}))

@@ -1,6 +1,7 @@
 package fi
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"strings"
@@ -164,9 +165,10 @@ func (u *testUI) Actions() map[string]UIAction {
 		},
 		"expandItem": func(_ context.Context, _ sdk.Host, a UIActionArgs) (ActionFlags, error) {
 			var p struct {
-				Mode     string `json:"mode"`
-				MaxLevel int    `json:"maxLevel"`
-				IsInTree bool   `json:"isInTree"`
+				Mode      string `json:"mode"`
+				MaxLevel  int    `json:"maxLevel"`
+				IsInTree  bool   `json:"isInTree"`
+				IsGrouped bool   `json:"isGrouped"`
 			}
 			if err := Decode(a.ActionParams, &p); err != nil {
 				return None, err
@@ -175,7 +177,7 @@ func (u *testUI) Actions() map[string]UIAction {
 				a.Session.CollapseItem(*a.Item)
 				return None, nil
 			}
-			a.Session.ExpandItem(*a.Item, ExpandOptions{MaxLevel: p.MaxLevel, InTree: p.IsInTree})
+			a.Session.ExpandItem(*a.Item, ExpandOptions{MaxLevel: p.MaxLevel, InTree: p.IsInTree, Grouped: p.IsGrouped})
 			return Redraw, nil
 		},
 		"collapseItem": func(_ context.Context, _ sdk.Host, a UIActionArgs) (ActionFlags, error) {
@@ -741,12 +743,20 @@ func TestCustomActionUnknown(t *testing.T) {
 }
 
 // treeSource is a tree of directories: the children of SourceOptions.Path.
-type treeSource struct{ open bool }
+type treeSource struct {
+	open bool
+	root string
+}
 
 var treeFiles = map[string][]string{
 	"/":    {"a/", "b"},
 	"/a":   {"c/", "d"},
 	"/a/c": {"e"},
+	// For isGrouped.
+	"/top":       {"g/", "z"},
+	"/top/g":     {"h/"},
+	"/top/g/h":   {"i/"},
+	"/top/g/h/i": {"j", "k"},
 }
 
 func (treeSource) Name() string { return "tree" }
@@ -754,7 +764,7 @@ func (treeSource) Kind() string { return "word" }
 func (s treeSource) Gather(_ context.Context, _ sdk.Host, a GatherArgs, emit func([]Item) error) error {
 	dir := a.SourceOptions.Path
 	if dir == "" {
-		dir = "/"
+		dir = cmp.Or(s.root, "/")
 	}
 	var items []Item
 	for _, w := range treeFiles[dir] {
@@ -843,4 +853,46 @@ func TestTreeIsExpanded(t *testing.T) {
 	f := newFixture(t, treeSource{open: true})
 	f.call(t, "start", map[string]any{"name": "open", "sources": []any{"tree"}}, map[string]any{}, map[string]any{})
 	waitView(t, f.ui, treeIs("a/:0+ c/:1 d:1 b:0"))
+}
+
+// The inputs of goda_fi#redraw() come in order (__seq): one older than
+// one taken is dropped.
+func TestRedrawInputOrder(t *testing.T) {
+	f := newFixture(t, &listSource{name: "list", batches: [][]string{{"apple", "banana"}}})
+	f.call(t, "start", map[string]any{"name": "ord", "sources": []any{"list"}}, map[string]any{}, map[string]any{})
+	waitView(t, f.ui, done)
+	f.call(t, "redraw", "ord", map[string]any{"input": "ban", "__seq": 2})
+	f.call(t, "redraw", "ord", map[string]any{"input": "a", "__seq": 1})
+	f.call(t, "redraw", "ord", map[string]any{"refresh": false})
+	v := waitView(t, f.ui, func(v *View) bool { return v.Input != "" })
+	for v.Input != "ban" || words(v.Items) != "banana" {
+		v = waitView(t, f.ui, func(*View) bool { return true })
+	}
+	var input string
+	_ = f.e.sessions["ord"].call(func(st *state) error { input = st.input; return nil })
+	if input != "ban" {
+		t.Errorf("input %q", input)
+	}
+}
+
+// isGrouped: the trees that are the only item of their parent go in its
+// line.
+func TestTreeGrouped(t *testing.T) {
+	f := newFixture(t, treeSource{root: "/top"})
+	ui := func(action string, id uint64, params map[string]any) {
+		f.call(t, "uiAction", "gr", action, params, map[string]any{"id": id})
+	}
+	f.call(t, "start", map[string]any{"name": "gr", "sources": []any{"tree"}}, map[string]any{}, map[string]any{})
+	v := waitView(t, f.ui, treeIs("g/:0 z:0"))
+	ui("expandItem", idOf(t, v, "g/"), map[string]any{"isGrouped": true})
+	v = waitView(t, f.ui, treeIs("g/h/i/:0+ j:1 k:1 z:0"))
+	if it := v.Items[0]; it.GroupedPath() != "g/h/" || it.TreePath != "/top/g/h/i" {
+		t.Errorf("grouped %q %q", it.GroupedPath(), it.TreePath)
+	}
+	// Collapsed: the first of them.
+	ui("collapseItem", idOf(t, v, "j"), nil)
+	v = waitView(t, f.ui, treeIs("g/:0 z:0"))
+	// Not grouped: one a line.
+	ui("expandItem", idOf(t, v, "g/"), map[string]any{"maxLevel": -1})
+	waitView(t, f.ui, treeIs("g/:0+ h/:1+ i/:2+ j:3 k:3 z:0"))
 }

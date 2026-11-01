@@ -204,10 +204,31 @@ goda_fi#custom#get_global()                      *goda_fi#custom#get_global()*
 goda_fi#custom#get_local()                        *goda_fi#custom#get_local()*
 	The patches made.
 
+                                                *goda_fi#custom#get_current()*
+goda_fi#custom#get_current([{name}])
+	The options of the session {name} (that of the current buffer) as
+	they are, as ddu#custom#get_current(); {} without it. To toggle
+	one with updateOptions:
+>vim
+	function ToggleHidden(name) abort
+	  let matchers = goda_fi#custom#get_current()
+	        \ ->get('sourceOptions', {})->get(a:name, {})
+	        \ ->get('matchers', [])->copy()
+	  let i = matchers->index('matcherhidden')
+	  if i >= 0
+	    call remove(matchers, i)
+	  else
+	    call add(matchers, 'matcherhidden')
+	  endif
+	  return matchers
+	endfunction
+<
                                                       *goda_fi#ui#do_action()*
 goda_fi#ui#do_action({action} [, {params} [, {name}]])
 	Runs the UI action {action} of the session of the current buffer
-	(or {name}). See |goda-fi-ui-ff-actions|.
+	(or {name}). See |goda-fi-ui-ff-actions|. From another buffer, the
+	session last shown, if it is (checkItems in autocommands); none:
+	nothing.
 
                                                   *goda_fi#ui#multi_actions()*
 goda_fi#ui#multi_actions({actions} [, {name}])
@@ -256,7 +277,8 @@ sources		The sources: names, or {name, options, params}.
 sourceOptions	By source name, "_" for all: matchers, sorters, converters,
 		defaultAction, ignoreCase, smartCase, matcherKey ("word" or
 		"display"), maxItems (10000), path, preview, volatile,
-		columns (what the items show, |goda-fi-columns|).
+		columns (what the items show, |goda-fi-columns|),
+		limitPath (actions keep path there or under it).
 
 sourceParams	By source name: the params of the sources.
 
@@ -344,7 +366,8 @@ floatingTitlePos	"left".
 
 floatingBlend		0: their 'winblend'.
 
-autoResize		The window is no higher than its items.
+autoResize		The window is no higher than its items (horizontal,
+			floating), or no wider (vertical).
 
 maxDisplayItems		1000: the lines of the buffer.
 
@@ -446,10 +469,29 @@ expandItem		Expands the tree under the cursor (a directory of
 			mode ("toggle": collapses it when it is expanded),
 			maxLevel (the levels under it expanded too, but the
 			hidden ones; -1: all), isInTree (the cursor goes to
-			its first item).
+			its first item), isGrouped (a tree that is the only
+			item of its parent goes in its line, "a/b/c/").
 
 collapseItem		Collapses the tree under the cursor, or the one it
 			is in; the cursor goes to it.
+
+togglePreview		preview with params.toggle (the params of the kind,
+			imageExts say, go on).
+
+updateOptions		Merges params into the options of the session (as
+			ddu.vim's); the action redraw gathers or draws with
+			them. With uiParams split: the window opens again.
+
+checkItems		Gathers again when the files changed (the directories
+			of the source file and of the trees expanded), the
+			items shown until the new ones come.
+
+chooseAction		A session of the item actions of the items, pushed
+			on this one (in ff): the one chosen runs on them,
+			back in this session.
+
+inputAction		Asks for the name of an item action (input(), with
+			completion) and runs it.
 
 quit			Closes the window.
 
@@ -484,6 +526,22 @@ fileFilter		A regexp (Go's): the items that are not trees must
 
 The actions cursorTreeTop and cursorTreeBottom move the cursor to the first
 and the last item of the tree it is in (in ff too).
+
+The filer sets b:goda_fi_ui_filer_path (its buffer) and
+t:goda_fi_ui_filer_path (its tab page) to the path of its first source, as
+ddu-ui-filer's b:ddu_ui_filer_path and t:ddu_ui_filer_path:
+>vim
+	nnoremap <Space>f <Cmd>call goda_fi#start(#{
+	      \   name: 'filer-' .. win_getid(), ui: 'filer', resume: v:true,
+	      \   sources: [#{ name: 'file', options: #{
+	      \     path: t:->get('goda_fi_ui_filer_path', getcwd()),
+	      \     limitPath: getcwd(),
+	      \     columns: ['filename'],
+	      \   } }],
+	      \ })<CR>
+	autocmd TabEnter,WinEnter,CursorHold,FocusGained *
+	      \ call goda_fi#ui#do_action('checkItems')
+<
 
 A configuration, with the column filename (|goda-fi-columns|):
 >go
@@ -557,6 +615,10 @@ rg		ext/source/rg (ddu-source-rg): what ripgrep finds. Params:
 		highlights ({path, lineNr, word}), maxEnqueSize (10000),
 		minVolatileInputLength (2), paths. inputType "migemo" is not
 		supported.
+
+pathhistory	ext/source/pathhistory (ddu-source-path_history): the
+		paths the session of the buffer it is started from left
+		(narrow), the last first.
 
 line		ext/source/line (ddu-source-line): the lines of the
 		buffer, from the cursor line. Params: bufNr,
@@ -753,6 +815,9 @@ fi.Column	Name, Length(args) (the width it takes for args.Items),
 fi.UI		Name, Redraw(view), Quit(view), Actions. Optional: Acks
 		(fi.UIAcker: Vim tells when a view is drawn).
 
+A source that knows when its items changed is a fi.SourceUpdateChecker
+(Updated: since it gathered), for checkItems.
+
 Params arrive as fi.Params; decode them over your defaults with fi.Decode,
 which rejects unknown keys. By the time a source gathers, the current window
 may be the UI's: use Context.WinID and Context.BufNr. Paths are relative to
@@ -773,8 +838,10 @@ DIFFERENCES FROM DDU.VIM                                         *goda-fi-ddu*
   its parent, and the filters apply to its items.
 - The filer is the UI ff with other defaults (|goda-fi-ui-filer|);
   sortCustom is not there.
-- Not yet: floating windows in Vim (the preview is a popup), isGrouped of
-  expandItem, chooseAction, Vim side aliases (ddu#custom#alias()),
-  ddu#ui#save_cmaps().
+- The source and the kind "action" (chooseAction) are in every
+  configuration.
+- Not yet: floating windows in Vim (the preview is a popup), Vim side
+  aliases (ddu#custom#alias()), ddu#ui#save_cmaps(), the image preview of
+  togglePreview.
 
 vim:tw=78:ts=8:noet:ft=help:norl:

@@ -19,6 +19,16 @@ function! goda_fi#custom#action(type, name, action, func) abort
   call goda_fi#_custom_action(a:type, a:name, a:action, a:func)
 endfunction
 
+" The options of the session {name} (that of the current buffer), as set
+" ({} without the session), as ddu#custom#get_current().
+function! goda_fi#custom#get_current(name = '') abort
+  let name = a:name !=# '' ? a:name : get(b:, 'goda_fi_name', '')
+  if name ==# '' || !goda#is_running('fi')
+    return {}
+  endif
+  return goda#request('fi', 'getCurrent', name)
+endfunction
+
 function! goda_fi#custom#get_global() abort
   return goda_fi#_get_global()
 endfunction

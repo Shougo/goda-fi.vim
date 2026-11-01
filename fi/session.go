@@ -132,6 +132,8 @@ func (s *session) safe(f func(*state)) {
 
 // gathering is the gathering of one source.
 type gathering struct {
+	// at: when it started.
+	at     time.Time
 	gen    int
 	cancel context.CancelFunc
 	done   bool
@@ -150,6 +152,12 @@ type treeKey struct {
 
 // treeNode is the gathering of the children of a tree item.
 type treeNode struct {
+	// parent is the item expanded.
+	parent Item
+	// stale: items are those of the gathering before, shown until new
+	// ones come.
+	stale  bool
+	at     time.Time
 	gen    int
 	cancel context.CancelFunc
 	done   bool
@@ -176,8 +184,10 @@ type state struct {
 
 	src []*gathering
 	// input filters; typed is what was typed (input before expandInput).
-	input string
-	typed string
+	// inputSeq is the order of the last input of goda_fi#redraw().
+	input    string
+	typed    string
+	inputSeq int64
 	// vimActions are the actions of goda_fi#custom#action(): their names,
 	// by type ("kind", "source", "ui") and extension name.
 	vimActions map[string]map[string][]string
@@ -216,6 +226,8 @@ type state struct {
 	expanded map[treeKey]bool
 	nodes    map[treeKey]*treeNode
 	cursor   uint64
+	// grouped are the trees expanded with isGrouped.
+	grouped map[treeKey]bool
 	// roots are the root items of the sources (View.Roots), rootIDs
 	// their IDs by source and path.
 	roots   []Item
@@ -259,6 +271,13 @@ func (st *state) start(o Options, p patch, c Context, user patch, vimActions map
 	c.Path = c.Cwd
 	if resume {
 		c.Input, c.Done, c.MaxItems, c.Path = st.ctx.Input, st.ctx.Done, st.ctx.MaxItems, st.ctx.Path
+		c.PathHistories = st.ctx.PathHistories
+	}
+	if !resume && len(o.Sources) > 0 {
+		if p := o.sourceOptions(0).Path; p != "" {
+			// That of the sources, as ddu.vim's.
+			c.Path = abs(&c, p)
+		}
 	}
 	st.ctx = c
 	st.visible = true
@@ -318,16 +337,26 @@ func (st *state) gather(indexes []int, keep bool) {
 	st.ctx.Done = false
 	st.dirty = true
 	for _, i := range indexes {
-		// The children are gathered again as their parents come back
-		// (expanded stays).
-		st.dropNodes(func(k treeKey) bool { return k.src == i })
+		if keep {
+			// The trees expanded are gathered again too, their items
+			// shown until new ones come.
+			for k, n := range st.nodes {
+				if k.src == i {
+					st.regatherNode(n)
+				}
+			}
+		} else {
+			// The children are gathered again as their parents come
+			// back (expanded stays).
+			st.dropNodes(func(k treeKey) bool { return k.src == i })
+		}
 		old := st.src[i]
 		if old != nil && old.cancel != nil {
 			old.cancel()
 		}
 		st.gatherGen++
 		ctx, cancel := context.WithCancel(st.s.base)
-		g := &gathering{gen: st.gatherGen, cancel: cancel}
+		g := &gathering{gen: st.gatherGen, cancel: cancel, at: time.Now()}
 		if keep && old != nil {
 			g.items, g.stale = old.items, true
 		}
@@ -353,6 +382,7 @@ func (st *state) gatherArgs(i int) GatherArgs {
 		SourceOptions: st.opts.sourceOptions(i),
 		SourceParams:  st.opts.sourceParams(i),
 		Input:         st.input,
+		ContextOf:     st.e.contextOf,
 	}
 }
 
@@ -514,7 +544,7 @@ func (st *state) filter(ctx context.Context) {
 			items = items[:max]
 		}
 		start := len(all)
-		all = st.flatten(ctx, &c, so, i, items, all, &total)
+		all = st.flatten(ctx, &c, so, i, items, all, &total, -1)
 		st.applyColumns(ctx, &c, so, all[start:])
 	}
 	all = st.runFilters(ctx, &c, SourceOptions{}, o.PostFilters, all)
@@ -1083,11 +1113,14 @@ func (st *state) itemAction(ctx context.Context, name string, items []Item, para
 	if res.SearchPath != "" {
 		st.search = res.SearchPath
 	}
-	if res.Path != "" && set.source < len(st.opts.Sources) {
+	if res.Path != "" && set.source < len(st.opts.Sources) && st.withinLimit(set.source, res.Path) {
 		if st.paths == nil {
 			st.paths = map[int]string{}
 		}
 		st.paths[set.source] = res.Path
+		if prev := sourcePath(&st.ctx, st.opts.sourceOptions(set.source)); prev != "" && prev != res.Path {
+			st.ctx.PathHistories = append(slices.Clone(st.ctx.PathHistories), prev)
+		}
 		st.setSourcePath(set.source, res.Path)
 		st.typed, st.input, st.ctx.Input = "", "", ""
 		st.dirty = true
@@ -1097,6 +1130,10 @@ func (st *state) itemAction(ctx context.Context, name string, items []Item, para
 		st.open = true
 	}
 	switch {
+	case res.Flags&RefreshItems != 0 && res.Path == "":
+		// The same places: what is shown stays until the new items come
+		// (a file pasted, deleted...).
+		st.gather(allIndexes(len(st.opts.Sources)), true)
 	case res.Flags&RefreshItems != 0:
 		st.gather(nil, false)
 	case res.Flags&(Redraw|Persist) != 0 || !quit || res.SearchPath != "":
@@ -1248,6 +1285,8 @@ func (a sessionAPI) ExpandItem(item Item, opts ExpandOptions) { a.st.expandItem(
 
 func (a sessionAPI) CollapseItem(item Item) { a.st.collapseItem(item) }
 
+func (a sessionAPI) UpdateOptions(p Params) error { return a.st.updateOptions(p) }
+
 // ---------------------------------------------------------------------------
 // Trees
 
@@ -1308,6 +1347,16 @@ func (st *state) expandItem(it Item, opts ExpandOptions) {
 	}
 	k := keyOf(it)
 	st.expanded[k] = true
+	if st.grouped == nil {
+		st.grouped = map[treeKey]bool{}
+	}
+	// Grouped or not, as this expand says, down the tree.
+	for g := range st.grouped {
+		if g.src == k.src && isUnder(g.path, k.path) {
+			delete(st.grouped, g)
+		}
+	}
+	st.grouped[k] = opts.Grouped
 	st.dropNodes(func(x treeKey) bool { return x == k })
 	st.gatherChildren(it, opts.MaxLevel, opts.InTree)
 	st.dirty = true
@@ -1325,6 +1374,10 @@ func (st *state) collapseItem(it Item) {
 		it = parent
 	}
 	k := keyOf(it)
+	if it.groupedPath != "" {
+		// Shown in the line of the trees above it: they are collapsed.
+		k = it.groupedFrom
+	}
 	st.expanded[k] = false
 	st.dropNodes(func(x treeKey) bool { return x == k || x.src == k.src && isUnder(x.path, k.path) })
 	st.cursor = it.id
@@ -1373,7 +1426,7 @@ func (st *state) gatherChildren(parent Item, depth int, inTree bool) {
 	k := keyOf(parent)
 	st.gatherGen++
 	ctx, cancel := context.WithCancel(st.s.base)
-	n := &treeNode{gen: st.gatherGen, cancel: cancel, depth: depth, inTree: inTree}
+	n := &treeNode{parent: parent, gen: st.gatherGen, cancel: cancel, depth: depth, inTree: inTree, at: time.Now()}
 	st.nodes[k] = n
 	i := parent.sourceIndex
 	if i >= len(st.opts.Sources) {
@@ -1426,6 +1479,9 @@ func (st *state) gatherChildren(parent Item, depth int, inTree bool) {
 				}
 				st.s.do(func(st *state) {
 					if n := current(st); n != nil {
+						if n.stale {
+							n.items, n.stale = nil, false
+						}
 						n.items = append(n.items, out...)
 						st.dirty = true
 						st.scheduleRedraw()
@@ -1440,10 +1496,24 @@ func (st *state) gatherChildren(parent Item, depth int, inTree bool) {
 				return
 			}
 			n.done = true
+			if n.stale {
+				n.items, n.stale = nil, false
+			}
 			if err != nil && !errors.Is(err, context.Canceled) {
 				st.report(fmt.Errorf("source %s: %w", spec.Name, err))
 			}
 			st.autoExpand(n.items, n.depth)
+			if st.grouped[k] && len(n.items) == 1 && n.items[0].IsTree && n.items[0].TreePath != "" {
+				// Its only item: shown in its line, expanded too.
+				ck := keyOf(n.items[0])
+				if e, asked := st.expanded[ck]; !asked || e {
+					st.expanded[ck] = true
+					st.grouped[ck] = true
+					if st.nodes[ck] == nil {
+						st.gatherChildren(n.items[0], deeper(n.depth), false)
+					}
+				}
+			}
 			if n.inTree && len(n.items) > 0 {
 				// The first child shown (sorted, filtered).
 				st.filter(st.s.base)
@@ -1460,20 +1530,43 @@ func (st *state) gatherChildren(parent Item, depth int, inTree bool) {
 }
 
 // flatten appends items (of the source i, filtered) to all, with the
-// children of those expanded under them, filtered as they are.
-func (st *state) flatten(ctx context.Context, c *Context, so SourceOptions, i int, items, all []Item, total *int) []Item {
+// children of those expanded under them, filtered as they are. level is
+// that of the items shown (-1: their own, at the top).
+func (st *state) flatten(ctx context.Context, c *Context, so SourceOptions, i int, items, all []Item, total *int, level int) []Item {
 	for _, it := range items {
+		if level >= 0 {
+			it.level = level
+		}
 		n := st.nodes[keyOf(it)]
 		it.expanded = n != nil && st.isExpanded(it)
-		all = append(all, it)
-		if !it.expanded {
-			continue
+		var kids []Item
+		if it.expanded {
+			*total += len(n.items)
+			kids = st.filterChildren(ctx, c, so, n.items)
 		}
-		*total += len(n.items)
-		kids := st.runFilters(ctx, c, so, so.Matchers, n.items)
-		kids = st.runFilters(ctx, c, so, so.Sorters, kids)
-		kids = st.runFilters(ctx, c, so, so.Converters, kids)
-		all = st.flatten(ctx, c, so, i, kids, all, total)
+		// isGrouped: a tree, the only item of one, in its line.
+		for it.expanded && st.grouped[keyOf(it)] && len(kids) == 1 && kids[0].IsTree {
+			kid := kids[0]
+			kid.level = it.level
+			kid.groupedPath = it.groupedPath + groupName(it)
+			kid.groupedFrom = keyOf(it)
+			if it.groupedPath != "" {
+				kid.groupedFrom = it.groupedFrom
+			}
+			kid.Word = it.Word + kid.Word
+			kn := st.nodes[keyOf(kid)]
+			kid.expanded = kn != nil && st.isExpanded(kid)
+			kids = nil
+			if kid.expanded {
+				*total += len(kn.items)
+				kids = st.filterChildren(ctx, c, so, kn.items)
+			}
+			it = kid
+		}
+		all = append(all, it)
+		if it.expanded {
+			all = st.flatten(ctx, c, so, i, kids, all, total, it.level+1)
+		}
 	}
 	return all
 }
@@ -1569,4 +1662,105 @@ func (st *state) applyColumns(ctx context.Context, c *Context, so SourceOptions,
 		it.Display = display.String()
 		it.Highlights = hls
 	}
+}
+
+// withinLimit: path is the limitPath of the source i, or under it (or it
+// has none).
+func (st *state) withinLimit(i int, path string) bool {
+	so := st.opts.sourceOptions(i)
+	if so.LimitPath == "" {
+		return true
+	}
+	limit := filepath.Clean(abs(&st.ctx, so.LimitPath))
+	path = filepath.Clean(abs(&st.ctx, path))
+	return path == limit || isUnder(path, limit)
+}
+
+// updateOptions merges p into the options of the session (the UI action
+// updateOptions): what is gathered and drawn next follows them.
+func (st *state) updateOptions(p Params) error {
+	merged := mergePatch(st.patch, patch(p))
+	o, err := st.e.check(merged)
+	if err != nil {
+		return err
+	}
+	st.patch, st.opts = merged, o
+	for i, path := range st.paths {
+		st.setSourcePath(i, path)
+	}
+	st.ui = st.e.b.uis[o.UI]
+	st.dirty = true
+	return nil
+}
+
+// checkItems gathers again the sources whose items changed since they
+// gathered them (or those of a tree expanded): the trees stay expanded.
+func (st *state) checkItems(ctx context.Context) bool {
+	updated := false
+	for i, g := range st.src {
+		if g == nil || !g.done || i >= len(st.opts.Sources) {
+			continue
+		}
+		c, ok := st.e.b.sources[st.opts.Sources[i].Name].(SourceUpdateChecker)
+		if !ok {
+			continue
+		}
+		a := st.gatherArgs(i)
+		if u, err := c.Updated(ctx, st.h, a, g.at); err == nil && u {
+			updated = true
+			break
+		}
+		for k, n := range st.nodes {
+			if k.src != i || !n.done {
+				continue
+			}
+			a := st.gatherArgs(i)
+			a.SourceOptions.Path = k.path
+			if u, err := c.Updated(ctx, st.h, a, n.at); err == nil && u {
+				updated = true
+				break
+			}
+		}
+		if updated {
+			break
+		}
+	}
+	if updated {
+		st.gather(allIndexes(len(st.opts.Sources)), true)
+	}
+	return updated
+}
+
+func (a sessionAPI) CheckItems(ctx context.Context) bool { return a.st.checkItems(ctx) }
+
+func allIndexes(n int) []int {
+	out := make([]int, n)
+	for i := range out {
+		out[i] = i
+	}
+	return out
+}
+
+// regatherNode gathers the items of a tree again, those it has shown until
+// new ones come.
+func (st *state) regatherNode(old *treeNode) {
+	items := old.items
+	if old.cancel != nil {
+		old.cancel()
+	}
+	st.gatherChildren(old.parent, old.depth, false)
+	if n := st.nodes[keyOf(old.parent)]; n != nil {
+		n.items, n.stale = items, true
+	}
+}
+
+func (st *state) filterChildren(ctx context.Context, c *Context, so SourceOptions, items []Item) []Item {
+	items = st.runFilters(ctx, c, so, so.Matchers, items)
+	items = st.runFilters(ctx, c, so, so.Sorters, items)
+	return st.runFilters(ctx, c, so, so.Converters, items)
+}
+
+// groupName is the name of a tree in the line of a tree under it: "dir/".
+func groupName(it Item) string {
+	return filepath.Base(strings.TrimRight(it.TreePath, `/\`)) + "/"
 }

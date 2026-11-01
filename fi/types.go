@@ -60,6 +60,10 @@ type Item struct {
 	matcherKey  string
 	level       int
 	expanded    bool
+	// groupedPath: the trees this one is shown in (isGrouped, "a/b/"),
+	// groupedFrom the first of them.
+	groupedPath string
+	groupedFrom treeKey
 }
 
 // Highlight highlights Width bytes from the byte column Col (1-based, as in
@@ -117,6 +121,11 @@ func (i *Item) TreeLevel() int { return i.level }
 // Expanded reports whether the item (a tree) shows its children.
 func (i *Item) Expanded() bool { return i.expanded }
 
+// GroupedPath is what goes before the name of a tree shown in the line of
+// the trees it is the only item of (expandItem isGrouped): "a/b/" for
+// "a/b/c/"; "" for the others.
+func (i *Item) GroupedPath() string { return i.groupedPath }
+
 // Context is where a session runs, as ddu.vim's context.
 type Context struct {
 	// Name of the session (Options.Name).
@@ -137,6 +146,8 @@ type Context struct {
 	// Path is the path of the sources (SourceOptions.Path), when they have
 	// one.
 	Path string `json:"path"`
+	// PathHistories are the paths actions left (narrow), the last last.
+	PathHistories []string `json:"pathHistories"`
 }
 
 // ActionFlags say what follows an action.

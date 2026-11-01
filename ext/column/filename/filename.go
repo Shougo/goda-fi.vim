@@ -78,7 +78,7 @@ func base(it fi.Item, p Params) string {
 	if path == "" {
 		path = it.Word
 	}
-	name := filepath.Base(strings.TrimRight(path, `/\`))
+	name := it.GroupedPath() + filepath.Base(strings.TrimRight(path, `/\`))
 	if it.IsTree {
 		name += "/"
 	}

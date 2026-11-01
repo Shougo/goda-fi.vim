@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Shougo/goda-fi.vim/ext/kind/file"
 	"github.com/Shougo/goda-fi.vim/fi"
@@ -60,6 +61,10 @@ func (s source) Gather(ctx context.Context, _ sdk.Host, a fi.GatherArgs, emit fu
 
 	st, err := os.Stat(base)
 	if err != nil {
+		if a.Parent != nil && os.IsNotExist(err) {
+			// A directory expanded that is gone.
+			return nil
+		}
 		return err
 	}
 	if !st.IsDir() {
@@ -127,4 +132,14 @@ func Item(base, path string, abs bool) fi.Item {
 		word += "/"
 	}
 	return fi.Item{Word: filepath.ToSlash(word), Action: ad, Status: status, TreePath: path, IsTree: ad.IsDirectory}
+}
+
+// Updated reports whether the directory changed (a file made, removed or
+// renamed in it) since: for checkItems.
+func (source) Updated(_ context.Context, _ sdk.Host, a fi.GatherArgs, since time.Time) (bool, error) {
+	st, err := os.Stat(a.SourcePath())
+	if err != nil {
+		return a.Parent == nil, nil
+	}
+	return st.ModTime().After(since), nil
 }

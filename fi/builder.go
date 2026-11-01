@@ -56,6 +56,9 @@ func New() *Builder {
 		local:  map[string]patch{},
 	}
 	b.AddKind(baseKind{})
+	// The chooser of chooseAction.
+	b.AddSource(actionSource{})
+	b.AddKind(actionKind{})
 	return b
 }
 
@@ -64,7 +67,7 @@ func (b *Builder) fail(format string, args ...any) {
 }
 
 func add[T interface{ Name() string }](b *Builder, what string, m map[string]T, name string, v T) *Builder {
-	if _, dup := m[name]; dup && name != "base" {
+	if _, dup := m[name]; dup && name != "base" && name != "action" {
 		b.fail("%s %q added twice", what, name)
 	}
 	m[name] = v
