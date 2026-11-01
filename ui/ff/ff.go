@@ -34,7 +34,8 @@ type Params struct {
 	MaxHighlightItems int `json:"maxHighlightItems"`
 	// DisplaySourceName: "no", "short" or "long" (see sourcePrefixes).
 	DisplaySourceName string `json:"displaySourceName"`
-	// DisplayTree is accepted; trees are not shown yet.
+	// DisplayTree: the items of trees are indented by their level, after
+	// "+ " (collapsed), "- " (expanded) or "  " (not a tree).
 	DisplayTree bool `json:"displayTree"`
 	// AutoResize: the window is no higher than its items (horizontal).
 	AutoResize bool `json:"autoResize"`
@@ -339,6 +340,9 @@ func (u *UI) Redraw(ctx context.Context, h sdk.Host, v *fi.View) error {
 	for i := range n {
 		it := &v.Items[i]
 		prefix := prefixes[it.SourceName()]
+		if p.DisplayTree {
+			prefix += treePrefix(it)
+		}
 		text := prefix + oneLine(it.Text())
 		r.Lines[row(i)-1] = text
 		r.IDs[row(i)-1] = it.ID()
@@ -432,7 +436,56 @@ func (u *UI) Actions() map[string]fi.UIAction {
 		"preview":             preview,
 		"quit":                quit,
 		"redraw":              redraw,
+		"expandItem":          expandItem,
+		"collapseItem":        collapseItem,
 	}
+}
+
+// treePrefix is what goes before an item with displayTree, as ddu-ui-ff's.
+func treePrefix(it *fi.Item) string {
+	mark := "  "
+	switch {
+	case it.IsTree && it.Expanded():
+		mark = "- "
+	case it.IsTree:
+		mark = "+ "
+	}
+	return strings.Repeat(" ", it.TreeLevel()) + mark
+}
+
+// expandItem expands the tree under the cursor (params: mode "toggle"
+// collapses it when it is expanded; maxLevel, the levels under it expanded
+// too, negative for all; isInTree, the cursor goes to its first child).
+func expandItem(_ context.Context, _ sdk.Host, a fi.UIActionArgs) (fi.ActionFlags, error) {
+	var p struct {
+		Mode     string `json:"mode"`
+		MaxLevel int    `json:"maxLevel"`
+		IsInTree bool   `json:"isInTree"`
+		// ddu.vim's; one tree is not joined with its only child yet.
+		IsGrouped bool `json:"isGrouped"`
+	}
+	if err := fi.Decode(a.ActionParams, &p); err != nil {
+		return fi.None, err
+	}
+	if a.Item == nil || !a.Item.IsTree {
+		return fi.None, nil
+	}
+	if a.Item.Expanded() {
+		if p.Mode == "toggle" {
+			a.Session.CollapseItem(*a.Item)
+		}
+		return fi.None, nil
+	}
+	a.Session.ExpandItem(*a.Item, fi.ExpandOptions{MaxLevel: p.MaxLevel, InTree: p.IsInTree})
+	return fi.Redraw, nil
+}
+
+// collapseItem collapses the tree under the cursor, or the one it is in.
+func collapseItem(_ context.Context, _ sdk.Host, a fi.UIActionArgs) (fi.ActionFlags, error) {
+	if a.Item != nil {
+		a.Session.CollapseItem(*a.Item)
+	}
+	return fi.None, nil
 }
 
 // targets are the items of an action: those selected, or that under the

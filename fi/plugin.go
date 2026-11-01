@@ -425,5 +425,11 @@ func itemDict(it Item) map[string]any {
 	if it.Kind != "" {
 		d["kind"] = it.Kind
 	}
+	if it.TreePath != "" {
+		d["treePath"] = it.TreePath
+	}
+	d["isTree"] = it.IsTree
+	d["__level"] = it.level
+	d["__expanded"] = it.expanded
 	return d
 }

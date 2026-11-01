@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"maps"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -47,7 +48,8 @@ type session struct {
 func newSession(e *engine, name string, h sdk.Host) *session {
 	base, cancel := context.WithCancel(context.Background())
 	s := &session{name: name, wake: make(chan struct{}, 1), base: base, cancel: cancel}
-	s.st = &state{s: s, e: e, h: h, name: name, selected: map[uint64]bool{}, views: map[int64][]Item{}}
+	s.st = &state{s: s, e: e, h: h, name: name, selected: map[uint64]bool{}, views: map[int64][]Item{},
+		expanded: map[treeKey]bool{}, nodes: map[treeKey]*treeNode{}}
 	go s.run()
 	return s
 }
@@ -140,6 +142,24 @@ type gathering struct {
 	stale bool
 }
 
+// treeKey is a tree item: its source and its TreePath.
+type treeKey struct {
+	src  int
+	path string
+}
+
+// treeNode is the gathering of the children of a tree item.
+type treeNode struct {
+	gen    int
+	cancel context.CancelFunc
+	done   bool
+	items  []Item
+	// depth is how many levels under it are expanded with it (negative:
+	// all), inTree: the cursor goes to its first child.
+	depth  int
+	inTree bool
+}
+
 // state is a session: the items gathered, the input, the selection, and
 // what the UI shows.
 type state struct {
@@ -190,6 +210,12 @@ type state struct {
 	search     string
 	errShown   map[string]bool
 	gatherGen  int
+	// expanded are the tree items expanded (false: collapsed; an item not
+	// there is as its IsExpanded says), nodes the gatherings of their
+	// children. cursor: the item the cursor goes to at the next view.
+	expanded map[treeKey]bool
+	nodes    map[treeKey]*treeNode
+	cursor   uint64
 }
 
 // start begins the session with options o (the merged patch p), or resumes
@@ -246,6 +272,7 @@ func (st *state) start(o Options, p patch, c Context, user patch, vimActions map
 		if !resume {
 			st.selected = map[uint64]bool{}
 			st.initCur = true
+			st.expanded = map[treeKey]bool{}
 		}
 		st.started = true
 		st.gather(nil, false)
@@ -278,6 +305,9 @@ func (st *state) gather(indexes []int, keep bool) {
 	st.ctx.Done = false
 	st.dirty = true
 	for _, i := range indexes {
+		// The children are gathered again as their parents come back
+		// (expanded stays).
+		st.dropNodes(func(k treeKey) bool { return k.src == i })
 		old := st.src[i]
 		if old != nil && old.cancel != nil {
 			old.cancel()
@@ -343,6 +373,7 @@ func (st *state) gatherSource(ctx context.Context, i, gen int, a GatherArgs) {
 				it.id = first + uint64(j)
 				it.sourceIndex = i
 				it.sourceName = spec.Name
+				it.level = it.Level
 				if it.Kind == "" {
 					it.Kind = src.Kind()
 				}
@@ -360,6 +391,7 @@ func (st *state) gatherSource(ctx context.Context, i, gen int, a GatherArgs) {
 					}
 					g.items = append(g.items, out...)
 					st.dirty = true
+					st.autoExpand(out, 0)
 					if st.holding[i] {
 						st.release(i)
 					} else {
@@ -468,7 +500,7 @@ func (st *state) filter(ctx context.Context) {
 		if max := intOr(so.MaxItems, 10000); len(items) > max {
 			items = items[:max]
 		}
-		all = append(all, items...)
+		all = st.flatten(ctx, &c, so, i, items, all, &total)
 	}
 	all = st.runFilters(ctx, &c, SourceOptions{}, o.PostFilters, all)
 	if boolOr(o.Unique, false) {
@@ -546,6 +578,15 @@ func (st *state) view() *View {
 			if itemPath(it) == st.search {
 				v.Cursor = it.id
 				st.search = ""
+				break
+			}
+		}
+	}
+	if st.cursor != 0 {
+		for _, it := range st.items {
+			if it.id == st.cursor {
+				v.Cursor = it.id
+				st.cursor = 0
 				break
 			}
 		}
@@ -797,6 +838,13 @@ func (st *state) itemsByID(list []uint64) []Item {
 			continue
 		}
 		for _, it := range g.items {
+			if i, ok := want[it.id]; ok {
+				out[i], found[i] = it, true
+			}
+		}
+	}
+	for _, n := range st.nodes {
+		for _, it := range n.items {
 			if i, ok := want[it.id]; ok {
 				out[i], found[i] = it, true
 			}
@@ -1165,3 +1213,237 @@ func (a sessionAPI) ToggleSelectAll() {
 }
 
 func (a sessionAPI) ClearSelect() { a.st.selected = map[uint64]bool{} }
+
+func (a sessionAPI) ExpandItem(item Item, opts ExpandOptions) { a.st.expandItem(item, opts) }
+
+func (a sessionAPI) CollapseItem(item Item) { a.st.collapseItem(item) }
+
+// ---------------------------------------------------------------------------
+// Trees
+
+func keyOf(it Item) treeKey { return treeKey{it.sourceIndex, it.TreePath} }
+
+// isExpanded: the tree item shows its children (asked for, or IsExpanded).
+func (st *state) isExpanded(it Item) bool {
+	if !it.IsTree || it.TreePath == "" {
+		return false
+	}
+	if e, ok := st.expanded[keyOf(it)]; ok {
+		return e
+	}
+	return it.IsExpanded
+}
+
+// autoExpand gathers the children of the tree items that came and are
+// expanded (asked for before a regather, IsExpanded, or depth levels under
+// one expanded: negative for all, but the hidden ones).
+func (st *state) autoExpand(items []Item, depth int) {
+	for _, it := range items {
+		if !it.IsTree || it.TreePath == "" {
+			continue
+		}
+		k := keyOf(it)
+		e, asked := st.expanded[k]
+		switch {
+		case asked && !e:
+			continue
+		case asked || it.IsExpanded:
+		case depth != 0 && !strings.HasPrefix(filepath.Base(it.TreePath), "."):
+			st.expanded[k] = true
+		default:
+			continue
+		}
+		if st.nodes[k] == nil {
+			st.gatherChildren(it, deeper(depth), false)
+		}
+	}
+}
+
+// deeper is the depth of the trees one level down.
+func deeper(depth int) int {
+	switch {
+	case depth > 0:
+		return depth - 1
+	case depth < 0:
+		return -1
+	}
+	return 0
+}
+
+// expandItem expands a tree item: its children are gathered (again, if
+// they were).
+func (st *state) expandItem(it Item, opts ExpandOptions) {
+	if !it.IsTree || it.TreePath == "" {
+		return
+	}
+	k := keyOf(it)
+	st.expanded[k] = true
+	st.dropNodes(func(x treeKey) bool { return x == k })
+	st.gatherChildren(it, opts.MaxLevel, opts.InTree)
+	st.dirty = true
+}
+
+// collapseItem collapses a tree item, or its parent when it is not
+// expanded; the cursor goes to it. The trees under it stay expanded for
+// the next time.
+func (st *state) collapseItem(it Item) {
+	if !st.isExpanded(it) {
+		parent, ok := st.parentOf(it)
+		if !ok {
+			return
+		}
+		it = parent
+	}
+	k := keyOf(it)
+	st.expanded[k] = false
+	st.dropNodes(func(x treeKey) bool { return x == k || x.src == k.src && isUnder(x.path, k.path) })
+	st.cursor = it.id
+	st.dirty = true
+	st.redrawNow()
+}
+
+// parentOf is the tree item shown whose child it is.
+func (st *state) parentOf(it Item) (Item, bool) {
+	if it.TreePath == "" || it.level == 0 {
+		return Item{}, false
+	}
+	dir := filepath.Dir(strings.TrimRight(it.TreePath, `/\`))
+	for _, p := range st.items {
+		if p.sourceIndex == it.sourceIndex && p.IsTree && p.expanded &&
+			strings.TrimRight(p.TreePath, `/\`) == dir {
+			return p, true
+		}
+	}
+	return Item{}, false
+}
+
+func isUnder(path, dir string) bool {
+	dir = strings.TrimRight(dir, `/\`)
+	return len(path) > len(dir)+1 && strings.HasPrefix(path, dir) && strings.ContainsRune(`/\`, rune(path[len(dir)]))
+}
+
+// dropNodes stops and forgets the gatherings of children of these items.
+func (st *state) dropNodes(match func(treeKey) bool) {
+	for k, n := range st.nodes {
+		if match(k) {
+			if n.cancel != nil {
+				n.cancel()
+			}
+			delete(st.nodes, k)
+		}
+	}
+}
+
+// gatherChildren gathers the children of the tree item parent in a
+// goroutine: its source with the path TreePath.
+func (st *state) gatherChildren(parent Item, depth int, inTree bool) {
+	if st.nodes == nil {
+		st.nodes = map[treeKey]*treeNode{}
+	}
+	k := keyOf(parent)
+	st.gatherGen++
+	ctx, cancel := context.WithCancel(st.s.base)
+	n := &treeNode{gen: st.gatherGen, cancel: cancel, depth: depth, inTree: inTree}
+	st.nodes[k] = n
+	i := parent.sourceIndex
+	if i >= len(st.opts.Sources) {
+		return
+	}
+	a := st.gatherArgs(i)
+	a.SourceOptions.Path = parent.TreePath
+	p := parent
+	a.Parent = &p
+	gen := n.gen
+	level := parent.level + 1
+	spec := st.opts.Sources[i]
+	src := st.e.b.sources[spec.Name]
+	key := a.SourceOptions.MatcherKey
+	current := func(st *state) *treeNode {
+		if n := st.nodes[k]; n != nil && n.gen == gen {
+			return n
+		}
+		return nil
+	}
+	go func() {
+		err := func() (err error) {
+			defer func() {
+				if p := recover(); p != nil {
+					err = fmt.Errorf("panic: %v", p)
+				}
+			}()
+			return src.Gather(ctx, st.h, a, func(items []Item) error {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				if len(items) == 0 {
+					return nil
+				}
+				out := make([]Item, len(items))
+				first := st.e.newIDs(len(items))
+				for j, it := range items {
+					it.id = first + uint64(j)
+					it.sourceIndex = i
+					it.sourceName = spec.Name
+					it.level = level
+					if it.Kind == "" {
+						it.Kind = src.Kind()
+					}
+					it.matcherKey = it.Word
+					if key == "display" && it.Display != "" {
+						it.matcherKey = it.Display
+					}
+					out[j] = it
+				}
+				st.s.do(func(st *state) {
+					if n := current(st); n != nil {
+						n.items = append(n.items, out...)
+						st.dirty = true
+						st.scheduleRedraw()
+					}
+				})
+				return nil
+			})
+		}()
+		st.s.do(func(st *state) {
+			n := current(st)
+			if n == nil {
+				return
+			}
+			n.done = true
+			if err != nil && !errors.Is(err, context.Canceled) {
+				st.report(fmt.Errorf("source %s: %w", spec.Name, err))
+			}
+			st.autoExpand(n.items, n.depth)
+			if n.inTree && len(n.items) > 0 {
+				// The first child shown (sorted, filtered).
+				st.filter(st.s.base)
+				for j, it := range st.items {
+					if it.id == parent.id && j+1 < len(st.items) && st.items[j+1].level > it.level {
+						st.cursor = st.items[j+1].id
+					}
+				}
+			}
+			st.dirty = true
+			st.redrawNow()
+		})
+	}()
+}
+
+// flatten appends items (of the source i, filtered) to all, with the
+// children of those expanded under them, filtered as they are.
+func (st *state) flatten(ctx context.Context, c *Context, so SourceOptions, i int, items, all []Item, total *int) []Item {
+	for _, it := range items {
+		n := st.nodes[keyOf(it)]
+		it.expanded = n != nil && st.isExpanded(it)
+		all = append(all, it)
+		if !it.expanded {
+			continue
+		}
+		*total += len(n.items)
+		kids := st.runFilters(ctx, c, so, so.Matchers, n.items)
+		kids = st.runFilters(ctx, c, so, so.Sorters, kids)
+		kids = st.runFilters(ctx, c, so, so.Converters, kids)
+		all = st.flatten(ctx, c, so, i, kids, all, total)
+	}
+	return all
+}

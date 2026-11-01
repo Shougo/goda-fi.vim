@@ -193,6 +193,29 @@ function! s:run() abort
   call goda_fi#ui#do_action('quit')
   call s:check('preview closed', winnr('$'), 1)
 
+  " A tree: the directories expanded under them (displayTree).
+  call s:start({'name': 'tree', 'sources': ['file'], 'uiParams': {'ff': {'displayTree': v:true}}})
+  call s:check('tree', s:wait_lines('tree', ['  a.txt', '  b.go', '  msg.log', '+ sub/']),
+        \ ['  a.txt', '  b.go', '  msg.log', '+ sub/'])
+  call cursor(4, 1)
+  call goda_fi#ui#do_action('expandItem', {'isInTree': v:true})
+  let want = ['  a.txt', '  b.go', '  msg.log', '- sub/', '   c.txt', ' + deep/']
+  call s:check('expandItem', s:wait_lines('tree', want), want)
+  call s:check('isInTree', line('.'), 5)
+  call s:check('tree item', [goda_fi#ui#get_item().__level, goda_fi#ui#get_item().treePath =~# 'sub[\/]c\.txt$'], [1, 1])
+  call cursor(6, 1)
+  call goda_fi#ui#do_action('expandItem', {'mode': 'toggle'})
+  let want = ['  a.txt', '  b.go', '  msg.log', '- sub/', '   c.txt', ' - deep/', '    d.md']
+  call s:check('expandItem deeper', s:wait_lines('tree', want), want)
+  call cursor(7, 1)
+  call goda_fi#ui#do_action('collapseItem')
+  let want = ['  a.txt', '  b.go', '  msg.log', '- sub/', '   c.txt', ' + deep/']
+  call s:check('collapseItem', s:wait_lines('tree', want), want)
+  call s:check('collapseItem cursor', line('.'), 6)
+  call cursor(5, 1)
+  call goda_fi#ui#do_action('itemAction')
+  call s:check('tree open', s:rel('%'), 'sub/c.txt')
+
   " buffer: the buffers opened.
   edit b.go
   call s:start({'name': 'buf', 'sources': ['buffer']})

@@ -43,11 +43,23 @@ type Item struct {
 	// Data belongs to the source; it stays in the plugin process.
 	Data any `json:"-"`
 
+	// A tree, as ddu.vim's: IsTree items (directories) can be expanded,
+	// which gathers their source again with SourceOptions.Path TreePath
+	// (GatherArgs.Parent is the item); the children go under them, one
+	// level deeper. IsExpanded: expanded from the start. Level: the
+	// level of an item of the top (0).
+	TreePath   string `json:"treePath,omitempty"`
+	IsTree     bool   `json:"isTree,omitempty"`
+	IsExpanded bool   `json:"isExpanded,omitempty"`
+	Level      int    `json:"level,omitempty"`
+
 	// Set by the engine.
 	id          uint64
 	sourceIndex int
 	sourceName  string
 	matcherKey  string
+	level       int
+	expanded    bool
 }
 
 // Highlight highlights Width bytes from the byte column Col (1-based, as in
@@ -97,6 +109,13 @@ func (i *Item) MatcherKey() string {
 
 // ID identifies the item in its session (a regather makes new ones).
 func (i *Item) ID() uint64 { return i.id }
+
+// TreeLevel is the level of the item in the tree as shown: 0 at the top,
+// one more under an item expanded.
+func (i *Item) TreeLevel() int { return i.level }
+
+// Expanded reports whether the item (a tree) shows its children.
+func (i *Item) Expanded() bool { return i.expanded }
 
 // Context is where a session runs, as ddu.vim's context.
 type Context struct {

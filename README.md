@@ -16,7 +16,7 @@ autoAction) work, with:
   `matcherfiles`, `sorteralpha`, `sortermtime`, `converterhldir`
 - kinds: `file`, `word`, `url`
 
-Trees and the filer come later.
+Trees are shown by `ff` (`displayTree`, `expandItem`); the filer comes later.
 
 What it does about the drawing: one goroutine per session takes every change
 in order, every redraw carries a version and is applied by Vim in one call

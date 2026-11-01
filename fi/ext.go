@@ -31,6 +31,9 @@ type GatherArgs struct {
 	SourceParams Params
 	// Input is the input, for a volatile source (SourceOptions.Volatile).
 	Input string
+	// Parent is the item expanded whose children are gathered (its
+	// TreePath is SourceOptions.Path), nil for the items of the top.
+	Parent *Item
 }
 
 // SourceIniter is a Source that prepares something (once per session) before
@@ -185,6 +188,21 @@ type Session interface {
 	ToggleSelectAll()
 	// ClearSelect selects none.
 	ClearSelect()
+	// ExpandItem shows the children of a tree item (gathered once they
+	// are asked for).
+	ExpandItem(item Item, opts ExpandOptions)
+	// CollapseItem hides the children of a tree item, or those of its
+	// parent when it is not expanded (as ddu-ui-ff's collapseItem).
+	CollapseItem(item Item)
+}
+
+// ExpandOptions are those of Session.ExpandItem, as ddu.vim's.
+type ExpandOptions struct {
+	// MaxLevel: the children are expanded too, this many levels down (a
+	// negative one: all of them), but for the hidden ones (".").
+	MaxLevel int
+	// InTree: the cursor goes to the first child.
+	InTree bool
 }
 
 // View is a state of a session, for a UI to show.

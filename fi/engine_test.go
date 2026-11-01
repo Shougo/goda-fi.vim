@@ -162,6 +162,26 @@ func (u *testUI) Actions() map[string]UIAction {
 			}
 			return None, a.Session.ItemAction(ctx, "default", []Item{it}, a.ActionParams)
 		},
+		"expandItem": func(_ context.Context, _ sdk.Host, a UIActionArgs) (ActionFlags, error) {
+			var p struct {
+				Mode     string `json:"mode"`
+				MaxLevel int    `json:"maxLevel"`
+				IsInTree bool   `json:"isInTree"`
+			}
+			if err := Decode(a.ActionParams, &p); err != nil {
+				return None, err
+			}
+			if a.Item.Expanded() && p.Mode == "toggle" {
+				a.Session.CollapseItem(*a.Item)
+				return None, nil
+			}
+			a.Session.ExpandItem(*a.Item, ExpandOptions{MaxLevel: p.MaxLevel, InTree: p.IsInTree})
+			return Redraw, nil
+		},
+		"collapseItem": func(_ context.Context, _ sdk.Host, a UIActionArgs) (ActionFlags, error) {
+			a.Session.CollapseItem(*a.Item)
+			return None, nil
+		},
 		"toggleSelectItem": func(_ context.Context, _ sdk.Host, a UIActionArgs) (ActionFlags, error) {
 			if it, ok := a.Session.ItemAt(a.Version, a.Cursor); ok {
 				a.Session.ToggleSelect(it.ID())
@@ -702,7 +722,7 @@ func TestCustomActions(t *testing.T) {
 		}
 	}
 	if !strings.HasPrefix(call, "goda_fi#_call_action[kind word grep map[actionParams:map[p:1] context:") ||
-		!strings.Contains(call, "items:[map[__id:") || !strings.Contains(call, "word:x") {
+		!strings.Contains(call, "items:[map[") || !strings.Contains(call, "__id:") || !strings.Contains(call, "word:x") {
 		t.Errorf("call %s", call)
 	}
 	f.call(t, "uiAction", "ca", "vimui", map[string]any{}, map[string]any{})
@@ -718,4 +738,109 @@ func TestCustomActionUnknown(t *testing.T) {
 	if err := b.Validate(); err == nil || !strings.Contains(err.Error(), `unknown kind "nosuch"`) {
 		t.Errorf("err %v", err)
 	}
+}
+
+// treeSource is a tree of directories: the children of SourceOptions.Path.
+type treeSource struct{ open bool }
+
+var treeFiles = map[string][]string{
+	"/":    {"a/", "b"},
+	"/a":   {"c/", "d"},
+	"/a/c": {"e"},
+}
+
+func (treeSource) Name() string { return "tree" }
+func (treeSource) Kind() string { return "word" }
+func (s treeSource) Gather(_ context.Context, _ sdk.Host, a GatherArgs, emit func([]Item) error) error {
+	dir := a.SourceOptions.Path
+	if dir == "" {
+		dir = "/"
+	}
+	var items []Item
+	for _, w := range treeFiles[dir] {
+		name := strings.TrimSuffix(w, "/")
+		path := strings.TrimSuffix(dir, "/") + "/" + name
+		it := Item{Word: w, TreePath: path, IsTree: strings.HasSuffix(w, "/")}
+		if s.open && path == "/a" {
+			it.IsExpanded = true
+		}
+		items = append(items, it)
+	}
+	return emit(items)
+}
+
+// tree is the items of a view as "word:level" ("+" expanded).
+func tree(v *View) string {
+	var out []string
+	for _, it := range v.Items {
+		s := fmt.Sprintf("%s:%d", it.Word, it.TreeLevel())
+		if it.Expanded() {
+			s += "+"
+		}
+		out = append(out, s)
+	}
+	return strings.Join(out, " ")
+}
+
+func treeIs(want string) func(*View) bool {
+	return func(v *View) bool { return tree(v) == want }
+}
+
+func idOf(t *testing.T, v *View, word string) uint64 {
+	t.Helper()
+	for _, it := range v.Items {
+		if it.Word == word {
+			return it.ID()
+		}
+	}
+	t.Fatalf("no %s in %s", word, tree(v))
+	return 0
+}
+
+func TestTree(t *testing.T) {
+	f := newFixture(t, treeSource{})
+	ui := func(action string, id uint64, params map[string]any) {
+		f.call(t, "uiAction", "tree", action, params, map[string]any{"id": id})
+	}
+	f.call(t, "start", map[string]any{"name": "tree", "sources": []any{"tree"}}, map[string]any{}, map[string]any{})
+	v := waitView(t, f.ui, treeIs("a/:0 b:0"))
+
+	// Expanded: its children under it; the cursor on the first one.
+	ui("expandItem", idOf(t, v, "a/"), map[string]any{"isInTree": true})
+	v = waitView(t, f.ui, treeIs("a/:0+ c/:1 d:1 b:0"))
+	if v.Cursor != idOf(t, v, "c/") {
+		t.Errorf("isInTree: cursor %d", v.Cursor)
+	}
+	// Collapsed from a child: its parent; the cursor on it.
+	ui("collapseItem", idOf(t, v, "d"), nil)
+	v = waitView(t, f.ui, treeIs("a/:0 b:0"))
+	if v.Cursor != idOf(t, v, "a/") {
+		t.Errorf("collapse: cursor %d", v.Cursor)
+	}
+	// All the levels.
+	ui("expandItem", idOf(t, v, "a/"), map[string]any{"maxLevel": -1})
+	v = waitView(t, f.ui, treeIs("a/:0+ c/:1+ e:2 d:1 b:0"))
+	// Collapsed and expanded again: what was expanded under it stays.
+	ui("expandItem", idOf(t, v, "a/"), map[string]any{"mode": "toggle"})
+	v = waitView(t, f.ui, treeIs("a/:0 b:0"))
+	ui("expandItem", idOf(t, v, "a/"), nil)
+	v = waitView(t, f.ui, treeIs("a/:0+ c/:1+ e:2 d:1 b:0"))
+	// Gathered again: expanded again.
+	f.call(t, "redraw", "tree", map[string]any{"refresh": true})
+	v = waitView(t, f.ui, func(v *View) bool { return done(v) && tree(v) == "a/:0+ c/:1+ e:2 d:1 b:0" })
+	// A filter applies to the children too.
+	f.call(t, "redraw", "tree", map[string]any{"input": "/"})
+	waitView(t, f.ui, treeIs("a/:0+ c/:1+"))
+	// The items of the children act as the others.
+	f.call(t, "itemAction", "tree", "default", []any{idOf(t, v, "e")}, map[string]any{})
+	if fmt.Sprint(f.kind.ran) != "[e <nil>]" {
+		t.Errorf("ran %q", f.kind.ran)
+	}
+}
+
+// IsExpanded: expanded from the start.
+func TestTreeIsExpanded(t *testing.T) {
+	f := newFixture(t, treeSource{open: true})
+	f.call(t, "start", map[string]any{"name": "open", "sources": []any{"tree"}}, map[string]any{}, map[string]any{})
+	waitView(t, f.ui, treeIs("a/:0+ c/:1 d:1 b:0"))
 }

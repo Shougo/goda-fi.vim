@@ -213,8 +213,9 @@ goda_fi#ui#multi_actions({actions} [, {name}])
 
                                                        *goda_fi#ui#get_item()*
 goda_fi#ui#get_item([{name}])
-	The item under the cursor: {word, display, action, kind, __id,
-	__sourceName, __sourceIndex}, or {}.
+	The item under the cursor: {word, display, action, kind, treePath,
+	isTree, __id, __sourceName, __sourceIndex, __level, __expanded},
+	or {}.
 
                                                       *goda_fi#ui#get_items()*
 goda_fi#ui#get_items([{name}])
@@ -352,7 +353,8 @@ displaySourceName	"no", "short" or "long": the name of the source
 			(rg and register are [rg] and [re]); a name that
 			shares nothing is its first letter.
 
-displayTree		Accepted; trees are not shown yet.
+displayTree		The items of trees indented by their level, after
+			"+ " (collapsed), "- " (expanded) or "  ".
 
 reversed		The first item at the bottom.
 
@@ -434,6 +436,16 @@ preview			Shows the item under the cursor in the preview
 
 redraw			Gathers again; {method: "uiRedraw"} draws again.
 
+expandItem		Expands the tree under the cursor (a directory of
+			the source file): its items go under it. Params:
+			mode ("toggle": collapses it when it is expanded),
+			maxLevel (the levels under it expanded too, but the
+			hidden ones; -1: all), isInTree (the cursor goes to
+			its first item).
+
+collapseItem		Collapses the tree under the cursor, or the one it
+			is in; the cursor goes to it.
+
 quit			Closes the window.
 
 ==============================================================================
@@ -442,7 +454,8 @@ SOURCES                                                      *goda-fi-sources*
 ddu.vim's names lose their "_": "file_rec" is "filerec".
 
 file		ext/source/file (ddu-source-file): the files of a
-		directory. Params: ignoreDirectories, new.
+		directory; the directories are trees (expandItem). Params:
+		ignoreDirectories, new.
 
 filerec		ext/source/filerec (ddu-source-file_rec): the files under
 		a directory. Params: chunkSize (1000), ignoredDirectories
@@ -602,6 +615,9 @@ fi.Source	Name, Kind, and Gather(ctx, host, args, emit): emit hands
 		items over as they come; the engine draws meanwhile. Gather
 		returns when it has no more, or ctx is done (the session
 		started over or ended). Optional: OnInit, Actions.
+		Trees: items with IsTree and TreePath (and IsExpanded)
+		are expanded by gathering again with SourceOptions.Path
+		their TreePath and GatherArgs.Parent the item.
 
 fi.Filter	Name, and Filter(ctx, host, args): the items filtered (new
 		slices; items are values, change copies).
@@ -629,8 +645,10 @@ DIFFERENCES FROM DDU.VIM                                         *goda-fi-ddu*
 - kindOptions.actions are other names of actions; actions of your own are
   added with |goda_fi#custom#action()| or in the configuration
   (|goda-fi-actions|).
-- Not yet: floating windows in Vim (the preview is a popup), trees, the
-  filer, columns, chooseAction, Vim side aliases (ddu#custom#alias()),
+- Trees are kept by the engine: an expanded tree is gathered again with
+  its parent, and the filters apply to its items.
+- Not yet: floating windows in Vim (the preview is a popup), the filer,
+  columns, isGrouped of expandItem, chooseAction, Vim side aliases (ddu#custom#alias()),
   ddu#ui#save_cmaps().
 
 vim:tw=78:ts=8:noet:ft=help:norl:

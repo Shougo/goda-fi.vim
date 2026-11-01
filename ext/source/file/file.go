@@ -1,5 +1,6 @@
 // Package file is the source "file" of goda-fi.vim, as ddu-source-file: the
-// files of a directory (SourceOptions.Path, or the current one).
+// files of a directory (SourceOptions.Path, or the current one). The
+// directories are trees: expanded, they list their files under them.
 //
 // The input picks the directory when the source is volatile: "sub/x" lists
 // sub (filtered by the matchers with the whole input).
@@ -41,14 +42,19 @@ func (s source) Gather(ctx context.Context, _ sdk.Host, a fi.GatherArgs, emit fu
 		return err
 	}
 	base := a.SourcePath()
+	input := a.Input
+	if a.Parent != nil {
+		// The children of a directory expanded: all its files.
+		p.New, input = false, ""
+	}
 	if p.New {
-		if a.Input == "" {
+		if input == "" {
 			return nil
 		}
 		return emit([]fi.Item{{
-			Word:    a.Input,
-			Display: "[new] " + a.Input,
-			Action:  file.ActionData{Path: filepath.Join(base, a.Input)},
+			Word:    input,
+			Display: "[new] " + input,
+			Action:  file.ActionData{Path: filepath.Join(base, input)},
 		}})
 	}
 
@@ -60,9 +66,9 @@ func (s source) Gather(ctx context.Context, _ sdk.Host, a fi.GatherArgs, emit fu
 		return emit([]fi.Item{Item(base, base, false)})
 	}
 	dir := base
-	abs := filepath.IsAbs(a.Input)
-	if i := strings.LastIndexAny(a.Input, `/`+string(filepath.Separator)); i >= 0 {
-		dir = a.Input[:i+1]
+	abs := filepath.IsAbs(input)
+	if i := strings.LastIndexAny(input, `/`+string(filepath.Separator)); i >= 0 {
+		dir = input[:i+1]
 		if !abs {
 			dir = filepath.Join(base, dir)
 		}
@@ -95,7 +101,8 @@ func (s source) Gather(ctx context.Context, _ sdk.Host, a fi.GatherArgs, emit fu
 }
 
 // Item is the item of path: its word relative to base (absolute with abs),
-// with "/" after a directory; a link to a directory is one.
+// with "/" after a directory; a link to a directory is one. Its TreePath is
+// path; a directory is a tree.
 func Item(base, path string, abs bool) fi.Item {
 	ad := file.ActionData{Path: path}
 	var status *fi.Status
@@ -119,5 +126,5 @@ func Item(base, path string, abs bool) fi.Item {
 	if ad.IsDirectory {
 		word += "/"
 	}
-	return fi.Item{Word: filepath.ToSlash(word), Action: ad, Status: status}
+	return fi.Item{Word: filepath.ToSlash(word), Action: ad, Status: status, TreePath: path, IsTree: ad.IsDirectory}
 }
