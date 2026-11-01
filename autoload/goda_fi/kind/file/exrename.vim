@@ -8,8 +8,9 @@ let s:PREFIX = has('win32') ? '[exrename]' : '*exrename*'
 " relative to, the session).
 function! goda_fi#kind#file#exrename#create_buffer(paths, options = {}) abort
   let options = extend({'cwd': getcwd(), 'name': ''}, a:options)
-  if options.cwd !~# '[/\\]$'
-    " The directory ends with a separator.
+  " "/" only (MS-Windows), and the directory ends with it.
+  let options.cwd = s:slash(options.cwd)
+  if options.cwd !~# '/$'
     let options.cwd .= '/'
   endif
   let winid = win_getid()
@@ -45,6 +46,7 @@ function! goda_fi#kind#file#exrename#create_buffer(paths, options = {}) abort
   let b:exrename.filenames = []
   let cnt = 1
   for path in a:paths
+    let path = s:slash(path)
     if !s:is_absolute(path)
       let path = b:exrename.cwd . path
     endif
@@ -89,6 +91,10 @@ function! goda_fi#kind#file#exrename#create_buffer(paths, options = {}) abort
   call win_gotoid(winid)
 endfunction
 
+function! s:slash(path) abort
+  return has('win32') ? substitute(a:path, '\\', '/', 'g') : a:path
+endfunction
+
 function! s:is_absolute(path) abort
   return a:path =~# '^\%(\a\a\+:\)\|^\%(\a:\|/\)'
 endfunction
@@ -110,7 +116,9 @@ function! s:do_rename() abort
     endif
 
     let old = b:exrename.paths[linenr - 1]
-    let new = expand(line)
+    " Not the separator after a directory: rename() of "dir/" fails on
+    " MS-Windows, and ":h" would be the directory itself.
+    let new = substitute(s:slash(expand(line)), '/\+$', '', '')
     if !s:is_absolute(new)
       let new = b:exrename.cwd . new
     endif

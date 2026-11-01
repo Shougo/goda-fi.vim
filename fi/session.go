@@ -1388,7 +1388,7 @@ func (st *state) parentOf(it Item) (Item, bool) {
 	if it.TreePath == "" || it.level == 0 {
 		return Item{}, false
 	}
-	dir := filepath.Dir(strings.TrimRight(it.TreePath, `/\`))
+	dir := parentPath(it.TreePath)
 	for _, p := range st.items {
 		if p.sourceIndex == it.sourceIndex && p.IsTree && p.expanded &&
 			strings.TrimRight(p.TreePath, `/\`) == dir {
@@ -1396,6 +1396,20 @@ func (st *state) parentOf(it Item) (Item, bool) {
 		}
 	}
 	return Item{}, false
+}
+
+// parentPath is the directory of path, with its separators ("/" or "\"),
+// as TreePath has them (filepath.Dir would make them those of the system).
+func parentPath(path string) string {
+	path = strings.TrimRight(path, `/\`)
+	i := strings.LastIndexAny(path, `/\`)
+	switch {
+	case i < 0:
+		return ""
+	case i == 0:
+		return path[:1]
+	}
+	return path[:i]
 }
 
 func isUnder(path, dir string) bool {

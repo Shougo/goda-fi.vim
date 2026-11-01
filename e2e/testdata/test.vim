@@ -60,6 +60,11 @@ function! s:rel(bufnr) abort
   return substitute(fnamemodify(bufname(a:bufnr), ':.'), '\\', '/', 'g')
 endfunction
 
+" A path with the separators of the system (the binary makes them so).
+function! s:p(path) abort
+  return has('win32') ? substitute(a:path, '/', '\\', 'g') : a:path
+endfunction
+
 " The lines of the filer, without the spaces at their end.
 function! s:flines(name) abort
   let bufnr = bufnr('goda-fi-filer-' . a:name)
@@ -246,7 +251,7 @@ function! s:run() abort
   let want = ['+ deep/', '  c.txt']
   call s:wait('filer narrow', {-> s:flines('fl')[1:] ==# want})
   call s:check('filer narrow', s:flines('fl')[1:], want)
-  call s:check('filer narrow root', s:flines('fl')[0] =~# '^file:.*tree/sub$', 1)
+  call s:check('filer narrow root', s:flines('fl')[0] =~# '^file:.*tree[\\/]sub$', 1)
   call goda_fi#ui#do_action('itemAction', {'name': 'narrow', 'params': {'path': '..'}})
   call s:wait('filer parent', {-> s:flines('fl')[0] =~# 'tree$' && len(s:flines('fl')) > 3})
   call s:wait('filer parent cursor', {-> getline('.') =~# 'sub/'})
@@ -337,7 +342,8 @@ function! s:run() abort
   call s:wait('fx', {-> s:flines('fx')[1:] ==# ['+ a/', '  y.txt']})
   call s:check('filer path', [b:goda_fi_ui_filer_path, t:goda_fi_ui_filer_path], [fx, fx])
   call s:check('autoResize vertical', winwidth(0),
-        \ max(map(getline(1, '$'), 'strdisplaywidth(substitute(v:val, " *$", "", ""))')) + 1)
+        \ min([max(map(getline(1, '$'), 'strdisplaywidth(substitute(v:val, " *$", "", ""))')) + 1,
+        \   &columns / 2]))
   " limitPath: not above it.
   call goda_fi#ui#do_action('itemAction', {'name': 'narrow', 'params': {'path': '..'}})
   sleep 200m
@@ -367,8 +373,8 @@ function! s:run() abort
   call setreg('"', '')
   call feedkeys("yank\<CR>", 't')
   call goda_fi#ui#do_action('inputAction')
-  call s:wait('inputAction', {-> getreg('"') ==# fx . '/y.txt'})
-  call s:check('inputAction', getreg('"'), fx . '/y.txt')
+  call s:wait('inputAction', {-> getreg('"') ==# s:p(fx . '/y.txt')})
+  call s:check('inputAction', getreg('"'), s:p(fx . '/y.txt'))
   " chooseAction: a session of the actions, pushed; the one chosen runs on
   " the items, back in the filer.
   call setreg('"', '')
@@ -377,18 +383,18 @@ function! s:run() abort
   call s:wait('chooseAction', {-> index(map(s:lines('fx'), 'matchstr(v:val, "^\\S\\+")'), 'yank') >= 0})
   call cursor(index(map(s:lines('fx'), 'matchstr(v:val, "^\\S\\+")'), 'yank') + 1, 1)
   call goda_fi#ui#do_action('itemAction')
-  call s:wait('chosen', {-> getreg('"') ==# fx . '/z.txt'})
-  call s:check('chosen', getreg('"'), fx . '/z.txt')
+  call s:wait('chosen', {-> getreg('"') ==# s:p(fx . '/z.txt')})
+  call s:check('chosen', getreg('"'), s:p(fx . '/z.txt'))
   call s:wait('chosen back', {-> bufnr('%') == bufnr('goda-fi-filer-fx')})
   call s:check('chosen back', s:flines('fx'), ['+ a/', '  y.txt', '  z.txt'])
   " pathhistory: the paths narrow left.
   call cursor(1, 1)
   call goda_fi#ui#do_action('itemAction', {'name': 'narrow'})
-  call s:wait('narrow a', {-> b:goda_fi_ui_filer_path ==# fx . '/a'})
+  call s:wait('narrow a', {-> b:goda_fi_ui_filer_path ==# s:p(fx . '/a')})
   call goda_fi#ui#do_action('itemAction', {'name': 'narrow', 'params': {'path': '..'}})
   call s:wait('narrow back', {-> b:goda_fi_ui_filer_path ==# fx})
   call s:start({'name': 'ph', 'sources': ['pathhistory']})
-  call s:check('pathhistory', s:wait_lines('ph', [fx . '/a', fx]), [fx . '/a', fx])
+  call s:check('pathhistory', s:wait_lines('ph', [s:p(fx . '/a'), fx]), [s:p(fx . '/a'), fx])
   call goda_fi#ui#do_action('quit')
   call win_gotoid(bufwinid(bufnr('goda-fi-filer-fx')))
   " The split changed: opened again.
