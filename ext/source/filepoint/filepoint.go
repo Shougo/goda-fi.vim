@@ -1,7 +1,8 @@
 // Package filepoint is the source "filepoint" of goda-fi.vim, as
 // ddu-source-file_point: the file under the cursor of the window the session
 // was started in, with the line and column that follow it ("path:10:3",
-// "path", line 10, ...): a compiler's message, a stack trace, a diff.
+// "path", line 10, ...): a compiler's message, a stack trace, a diff. A URL
+// there is an item of the kind "url" (ext/kind/url).
 package filepoint
 
 import (
@@ -13,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/Shougo/goda-fi.vim/ext/kind/file"
+	"github.com/Shougo/goda-fi.vim/ext/kind/url"
 	"github.com/Shougo/goda-fi.vim/fi"
 	"github.com/Shougo/goda.vim/sdk"
 )
@@ -86,8 +88,8 @@ func (source) Gather(ctx context.Context, h sdk.Host, a fi.GatherArgs, emit func
 
 	cfile := Cfile(pt.Line, pt.Col)
 	if strings.HasPrefix(cfile, "http://") || strings.HasPrefix(cfile, "https://") {
-		// URLs are for a kind "url" (not yet).
-		return nil
+		// An item of the kind "url" (add ext/kind/url).
+		return emit([]fi.Item{{Word: cfile, Kind: "url", Action: url.ActionData{URL: cfile}}})
 	}
 	var checks []check
 	if pt.Terminal && pt.PrevLine != "" {

@@ -211,6 +211,20 @@ function! s:run() abort
   call goda_fi#ui#do_action('itemAction')
   call s:check('filepoint open', [s:rel('%'), line('.'), col('.')],
         \ ['sub/c.txt', 2, 3])
+  " A URL: an item of the kind url.
+  enew!
+  call setline(1, 'see https://example.com/a?b=1 here')
+  call cursor(1, 12)
+  call s:start({'name': 'point', 'sources': ['filepoint']})
+  call s:check('filepoint url', s:wait_lines('point', ['https://example.com/a?b=1']),
+        \ ['https://example.com/a?b=1'])
+  call s:check('url kind', goda_fi#ui#get_item().kind, 'url')
+  call goda_fi#ui#do_action('itemAction')
+  call s:check('url yank', getreg('"'), "https://example.com/a?b=1\n")
+  " yank keeps the UI (Persist).
+  call s:wait('url persist', {-> bufnr('%') == s:buf('point')})
+  call goda_fi#ui#do_action('quit')
+  enew!
 
   " fileexternal: what a command lists.
   let cmd = has('win32') ? ['cmd', '/c', 'echo b.go'] : ['sh', '-c', 'echo b.go; echo a.txt']

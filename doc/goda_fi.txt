@@ -456,7 +456,8 @@ buffer		ext/source/buffer (ddu-source-buffer): the listed buffers
 
 filepoint	ext/source/filepoint (ddu-source-file_point): the file
 		under the cursor, at the line and column after it
-		("path:10:3", "path", line 10, a diff...).
+		("path:10:3", "path", line 10, a diff...). A URL there
+		(http://, https://) is an item of the kind url: add it too.
 
 fileexternal	ext/source/fileexternal (ddu-source-file_external): the
 		files a command lists. Params: cmd (["fd", "-t", "f"]),

@@ -11,6 +11,7 @@ import (
 	"github.com/Shougo/goda-fi.vim/ext/filter/sorteralpha"
 	"github.com/Shougo/goda-fi.vim/ext/filter/sortermtime"
 	kindfile "github.com/Shougo/goda-fi.vim/ext/kind/file"
+	"github.com/Shougo/goda-fi.vim/ext/kind/url"
 	"github.com/Shougo/goda-fi.vim/ext/kind/word"
 	"github.com/Shougo/goda-fi.vim/ext/source/buffer"
 	"github.com/Shougo/goda-fi.vim/ext/source/file"
@@ -48,6 +49,7 @@ func main() {
 	b.AddFilter(converterhldir.New(converterhldir.Params{}))
 	b.AddKind(kindfile.New())
 	b.AddKind(word.New())
+	b.AddKind(url.New())
 	b.AddActionAlias("tabopen", "open")
 	b.PatchGlobal(fi.Options{
 		UI: "ff",
@@ -57,6 +59,7 @@ func main() {
 		KindOptions: map[string]fi.KindOptions{
 			"file": {DefaultAction: "open"},
 			"word": {DefaultAction: "append"},
+			"url":  {DefaultAction: "yank"},
 		},
 		ActionParams: map[string]fi.Params{
 			"tabopen": {"command": "tabedit"},
