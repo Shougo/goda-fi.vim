@@ -99,7 +99,7 @@ func run(t *testing.T, env []string, name string, args ...string) {
 			ok = true
 		}
 	}
-	if !ok {
+	if !ok || strings.Contains(string(b), "[notify]") {
 		t.Errorf("%s", strings.Join(lines, "\n"))
 	}
 }

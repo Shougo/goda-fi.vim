@@ -141,6 +141,10 @@ func vimParams(p Params, extra map[string]any) map[string]any {
 			aa["params"] = map[string]any{}
 		}
 	}
+	if m["highlights"] == nil {
+		// Not null: Vim looks into it (get()).
+		m["highlights"] = map[string]any{}
+	}
 	for k, v := range extra {
 		m[k] = v
 	}
