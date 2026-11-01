@@ -855,26 +855,6 @@ func TestTreeIsExpanded(t *testing.T) {
 	waitView(t, f.ui, treeIs("a/:0+ c/:1 d:1 b:0"))
 }
 
-// The inputs of goda_fi#redraw() come in order (__seq): one older than
-// one taken is dropped.
-func TestRedrawInputOrder(t *testing.T) {
-	f := newFixture(t, &listSource{name: "list", batches: [][]string{{"apple", "banana"}}})
-	f.call(t, "start", map[string]any{"name": "ord", "sources": []any{"list"}}, map[string]any{}, map[string]any{})
-	waitView(t, f.ui, done)
-	f.call(t, "redraw", "ord", map[string]any{"input": "ban", "__seq": 2})
-	f.call(t, "redraw", "ord", map[string]any{"input": "a", "__seq": 1})
-	f.call(t, "redraw", "ord", map[string]any{"refresh": false})
-	v := waitView(t, f.ui, func(v *View) bool { return v.Input != "" })
-	for v.Input != "ban" || words(v.Items) != "banana" {
-		v = waitView(t, f.ui, func(*View) bool { return true })
-	}
-	var input string
-	_ = f.e.sessions["ord"].call(func(st *state) error { input = st.input; return nil })
-	if input != "ban" {
-		t.Errorf("input %q", input)
-	}
-}
-
 // isGrouped: the trees that are the only item of their parent go in its
 // line.
 func TestTreeGrouped(t *testing.T) {

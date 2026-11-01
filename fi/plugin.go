@@ -203,18 +203,10 @@ func (e *engine) redraw(_ context.Context, _ sdk.Host, params []any) (any, error
 		return nil, err
 	}
 	opts := argMap(params, 1)
-	// The order of goda_fi#redraw(): the notifications may be taken in
-	// another one.
-	var seq int64
-	switch n := opts["__seq"].(type) {
-	case int64:
-		seq = n
-	case float64:
-		seq = int64(n)
-	}
+	// goda.vim handles the notifications in the order they were sent:
+	// the inputs typed come in order.
 	s.do(func(st *state) {
-		if in, ok := opts["input"].(string); ok && (seq == 0 || seq > st.inputSeq) {
-			st.inputSeq = max(st.inputSeq, seq)
+		if in, ok := opts["input"].(string); ok {
 			st.setInput(in)
 		}
 		if r, _ := opts["refresh"].(bool); r {

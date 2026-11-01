@@ -133,17 +133,9 @@ endfunction
 " {'refresh': v:true}.
 function! goda_fi#redraw(name, options = {}) abort
   if goda#is_running('fi')
-    let options = a:options
-    if has_key(options, 'input')
-      " The binary may take notifications in another order: an input
-      " older than one it took is dropped.
-      let s:input_seq += 1
-      let options = extend(copy(options), {'__seq': s:input_seq})
-    endif
-    call goda#notify('fi', 'redraw', a:name, options)
+    call goda#notify('fi', 'redraw', a:name, a:options)
   endif
 endfunction
-let s:input_seq = get(s:, 'input_seq', 0)
 
 " End the session started with {'push': v:true} and show the one it replaced.
 function! goda_fi#pop(name = get(b:, 'goda_fi_name', 'default')) abort

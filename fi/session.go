@@ -184,10 +184,8 @@ type state struct {
 
 	src []*gathering
 	// input filters; typed is what was typed (input before expandInput).
-	// inputSeq is the order of the last input of goda_fi#redraw().
-	input    string
-	typed    string
-	inputSeq int64
+	input string
+	typed string
 	// vimActions are the actions of goda_fi#custom#action(): their names,
 	// by type ("kind", "source", "ui") and extension name.
 	vimActions map[string]map[string][]string
