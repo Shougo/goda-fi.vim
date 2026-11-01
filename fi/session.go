@@ -216,6 +216,13 @@ type state struct {
 	expanded map[treeKey]bool
 	nodes    map[treeKey]*treeNode
 	cursor   uint64
+	// roots are the root items of the sources (View.Roots), rootIDs
+	// their IDs by source and path.
+	roots   []Item
+	rootIDs map[treeKey]uint64
+	// paths are the paths of the sources set by actions (ActionResult.Path),
+	// by index: a resume keeps them.
+	paths map[int]string
 }
 
 // start begins the session with options o (the merged patch p), or resumes
@@ -240,7 +247,13 @@ func (st *state) start(o Options, p patch, c Context, user patch, vimActions map
 	if st.ui != nil && st.ui.Name() != o.UI && st.visible {
 		_ = st.quit(st.s.base)
 	}
+	if !resume {
+		st.paths = nil
+	}
 	st.patch, st.opts = p, o
+	for i, path := range st.paths {
+		st.setSourcePath(i, path)
+	}
 	st.ui = st.e.b.uis[o.UI]
 	c.Name = o.Name
 	c.Path = c.Cwd
@@ -500,7 +513,9 @@ func (st *state) filter(ctx context.Context) {
 		if max := intOr(so.MaxItems, 10000); len(items) > max {
 			items = items[:max]
 		}
+		start := len(all)
 		all = st.flatten(ctx, &c, so, i, items, all, &total)
+		st.applyColumns(ctx, &c, so, all[start:])
 	}
 	all = st.runFilters(ctx, &c, SourceOptions{}, o.PostFilters, all)
 	if boolOr(o.Unique, false) {
@@ -591,6 +606,7 @@ func (st *state) view() *View {
 			}
 		}
 	}
+	v.Roots = st.rootItems()
 	return v
 }
 
@@ -850,6 +866,11 @@ func (st *state) itemsByID(list []uint64) []Item {
 			}
 		}
 	}
+	for _, it := range st.roots {
+		if i, ok := want[it.id]; ok {
+			out[i], found[i] = it, true
+		}
+	}
 	// A converter may have changed them: those shown first.
 	for _, it := range st.items {
 		if i, ok := want[it.id]; ok {
@@ -1061,6 +1082,15 @@ func (st *state) itemAction(ctx context.Context, name string, items []Item, para
 	}
 	if res.SearchPath != "" {
 		st.search = res.SearchPath
+	}
+	if res.Path != "" && set.source < len(st.opts.Sources) {
+		if st.paths == nil {
+			st.paths = map[int]string{}
+		}
+		st.paths[set.source] = res.Path
+		st.setSourcePath(set.source, res.Path)
+		st.typed, st.input, st.ctx.Input = "", "", ""
+		st.dirty = true
 	}
 	if quit && res.Flags&Persist != 0 {
 		st.visible = true
@@ -1446,4 +1476,97 @@ func (st *state) flatten(ctx context.Context, c *Context, so SourceOptions, i in
 		all = st.flatten(ctx, c, so, i, kids, all, total)
 	}
 	return all
+}
+
+// setSourcePath makes path the path of the source i.
+func (st *state) setSourcePath(i int, path string) {
+	if i >= len(st.opts.Sources) {
+		return
+	}
+	sources := slices.Clone(st.opts.Sources)
+	spec := sources[i]
+	so := SourceOptions{}
+	if spec.Options != nil {
+		so = *spec.Options
+	}
+	so.Path = path
+	spec.Options = &so
+	sources[i] = spec
+	st.opts.Sources = sources
+	if p, err := toPatch(Options{Sources: sources}); err == nil {
+		st.patch = maps.Clone(st.patch)
+		st.patch["sources"] = p["sources"]
+	}
+	st.ctx.Path = path
+}
+
+// rootItems are the root items of the sources: their paths.
+func (st *state) rootItems() []Item {
+	if st.rootIDs == nil {
+		st.rootIDs = map[treeKey]uint64{}
+	}
+	roots := make([]Item, len(st.opts.Sources))
+	for i, spec := range st.opts.Sources {
+		path := sourcePath(&st.ctx, st.opts.sourceOptions(i))
+		k := treeKey{i, path}
+		id := st.rootIDs[k]
+		if id == 0 {
+			id = st.e.newIDs(1)
+			st.rootIDs[k] = id
+		}
+		kind := "base"
+		if src := st.e.b.sources[spec.Name]; src != nil {
+			kind = src.Kind()
+		}
+		roots[i] = Item{
+			Word: path, Kind: kind, TreePath: path,
+			id: id, sourceIndex: i, sourceName: spec.Name, level: -1, expanded: true,
+			matcherKey: path,
+		}
+	}
+	st.roots = roots
+	return roots
+}
+
+// applyColumns makes what the items of a source show from its columns.
+func (st *state) applyColumns(ctx context.Context, c *Context, so SourceOptions, items []Item) {
+	if len(so.Columns) == 0 || len(items) == 0 {
+		return
+	}
+	type col struct {
+		c      Column
+		args   ColumnArgs
+		length int
+	}
+	var cols []col
+	for _, name := range so.Columns {
+		cl := st.e.b.columns[name]
+		if cl == nil {
+			continue
+		}
+		a := ColumnArgs{Context: c, Options: &st.opts, ColumnParams: st.opts.columnParams(name), Items: items}
+		n, err := cl.Length(ctx, st.h, a)
+		if err != nil {
+			st.report(fmt.Errorf("column %s: %w", name, err))
+			continue
+		}
+		cols = append(cols, col{cl, a, n})
+	}
+	for j := range items {
+		it := &items[j]
+		var display strings.Builder
+		var hls []Highlight
+		for _, cl := range cols {
+			startCol := display.Len() + 1
+			t, err := cl.c.Text(ctx, st.h, cl.args, *it, startCol, startCol+cl.length)
+			if err != nil {
+				st.report(fmt.Errorf("column %s: %w", cl.c.Name(), err))
+				continue
+			}
+			display.WriteString(t.Text)
+			hls = append(hls, t.Highlights...)
+		}
+		it.Display = display.String()
+		it.Highlights = hls
+	}
 }

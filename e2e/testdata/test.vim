@@ -60,6 +60,12 @@ function! s:rel(bufnr) abort
   return substitute(fnamemodify(bufname(a:bufnr), ':.'), '\\', '/', 'g')
 endfunction
 
+" The lines of the filer, without the spaces at their end.
+function! s:flines(name) abort
+  let bufnr = bufnr('goda-fi-filer-' . a:name)
+  return bufnr < 0 ? [] : map(getbufline(bufnr, 1, '$'), 'substitute(v:val, " *$", "", "")')
+endfunction
+
 function! s:start(options) abort
   call goda_fi#start(a:options)
 endfunction
@@ -215,6 +221,40 @@ function! s:run() abort
   call cursor(5, 1)
   call goda_fi#ui#do_action('itemAction')
   call s:check('tree open', s:rel('%'), 'sub/c.txt')
+
+  " The filer: the root, the column filename, sorted, narrow.
+  call s:start({'name': 'fl', 'ui': 'filer',
+        \ 'sources': [{'name': 'file', 'options': {'columns': ['filename']}}],
+        \ 'uiParams': {'filer': {'sort': 'filename', 'sortTreesFirst': v:true}}})
+  let want = ['+ sub/', '  a.txt', '  b.go', '  msg.log']
+  call s:wait('filer', {-> s:flines('fl')[1:] ==# want})
+  call s:check('filer', s:flines('fl')[1:], want)
+  call s:check('filer root', s:flines('fl')[0] =~# '^file:.*tree$', 1)
+  call s:check('filer buffer', [bufnr('%'), &filetype], [bufnr('goda-fi-filer-fl'), 'goda-fi-filer'])
+  call cursor(2, 1)
+  call goda_fi#ui#do_action('expandItem')
+  let want = ['- sub/', ' + deep/', '   c.txt', '  a.txt', '  b.go', '  msg.log']
+  call s:wait('filer expand', {-> s:flines('fl')[1:] ==# want})
+  call s:check('filer expand', s:flines('fl')[1:], want)
+  call cursor(3, 1)
+  call goda_fi#ui#do_action('cursorTreeBottom')
+  call s:check('cursorTreeBottom', line('.'), 4)
+  call goda_fi#ui#do_action('cursorTreeTop')
+  call s:check('cursorTreeTop', line('.'), 3)
+  call cursor(2, 1)
+  call goda_fi#ui#do_action('itemAction', {'name': 'narrow'})
+  let want = ['+ deep/', '  c.txt']
+  call s:wait('filer narrow', {-> s:flines('fl')[1:] ==# want})
+  call s:check('filer narrow', s:flines('fl')[1:], want)
+  call s:check('filer narrow root', s:flines('fl')[0] =~# '^file:.*tree/sub$', 1)
+  call goda_fi#ui#do_action('itemAction', {'name': 'narrow', 'params': {'path': '..'}})
+  call s:wait('filer parent', {-> s:flines('fl')[0] =~# 'tree$' && len(s:flines('fl')) > 3})
+  call s:wait('filer parent cursor', {-> getline('.') =~# 'sub/'})
+  call s:check('filer parent cursor', getline('.') =~# 'sub/', 1)
+  " The root line is the root item.
+  call cursor(1, 1)
+  call s:check('filer root item', goda_fi#ui#get_item().__level, -1)
+  call goda_fi#ui#do_action('quit')
 
   " buffer: the buffers opened.
   edit b.go

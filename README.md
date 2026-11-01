@@ -15,8 +15,10 @@ autoAction) work, with:
 - filters: `matchersubstring`, `matcherhidden`, `matcherrelative`,
   `matcherfiles`, `sorteralpha`, `sortermtime`, `converterhldir`
 - kinds: `file`, `word`, `url`
+- columns: `filename`
 
-Trees are shown by `ff` (`displayTree`, `expandItem`); the filer comes later.
+Trees are shown by `ff` (`displayTree`, `expandItem`) and by the filer `filer`
+(ddu-ui-filer, with the column `filename`); its file operations come later.
 
 What it does about the drawing: one goroutine per session takes every change
 in order, every redraw carries a version and is applied by Vim in one call

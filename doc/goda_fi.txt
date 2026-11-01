@@ -11,9 +11,11 @@ Functions		|goda-fi-functions|
 Variables		|goda-fi-variables|
 Options			|goda-fi-options|
 UI ff			|goda-fi-ui-ff|
+UI filer		|goda-fi-ui-filer|
 Sources			|goda-fi-sources|
 Filters			|goda-fi-filters|
 Kinds			|goda-fi-kinds|
+Columns			|goda-fi-columns|
 Aliases			|goda-fi-aliases|
 Events			|goda-fi-events|
 Extensions		|goda-fi-extensions|
@@ -253,7 +255,8 @@ sources		The sources: names, or {name, options, params}.
 
 sourceOptions	By source name, "_" for all: matchers, sorters, converters,
 		defaultAction, ignoreCase, smartCase, matcherKey ("word" or
-		"display"), maxItems (10000), path, preview, volatile.
+		"display"), maxItems (10000), path, preview, volatile,
+		columns (what the items show, |goda-fi-columns|).
 
 sourceParams	By source name: the params of the sources.
 
@@ -279,6 +282,8 @@ uiParams	By UI name: the params of the UI (|goda-fi-ui-ff-params|).
 actionOptions	By action name: quit (v:true).
 
 actionParams	By action name: the params of the actions.
+
+columnParams	By column name: the params of the columns.
 
 postFilters	Filters run on the items of all the sources together.
 
@@ -449,6 +454,74 @@ collapseItem		Collapses the tree under the cursor, or the one it
 quit			Closes the window.
 
 ==============================================================================
+UI FILER                                                    *goda-fi-ui-filer*
+
+ui/filer, as ddu-ui-filer: the items of trees in a buffer
+("goda-fi-filer-{name}", filetype "goda-fi-filer"), the path of each
+source on the line before its items. It is the UI ff with other defaults:
+its params and actions are those of ff (|goda-fi-ui-ff-params|,
+|goda-fi-ui-ff-actions|), and these.
+
+PARAMS                                               *goda-fi-ui-filer-params*
+
+splitDirection		"aboveleft".
+
+displayRoot		v:true: a line of the path of each source,
+			"{source}:{path}" ("~" for the home directory), before
+			its items. It is the root item of the source
+			(__level -1): actions work on it (narrow).
+			highlights "sourceName" (Type), "sourcePath" (String).
+
+sort			"filename", "natural" (numbers by their value),
+			"extension", "size", "time" or "none" (default);
+			upper case reverses it. The items of a tree are
+			sorted among them.
+
+sortTreesFirst		The trees (directories) before the other items.
+
+fileFilter		A regexp (Go's): the items that are not trees must
+			match it.
+
+The actions cursorTreeTop and cursorTreeBottom move the cursor to the first
+and the last item of the tree it is in (in ff too).
+
+A configuration, with the column filename (|goda-fi-columns|):
+>go
+	b.AddUI(filer.New())
+	b.AddColumn(filename.New(filename.DefaultParams()))
+	b.PatchLocal("filer", fi.Options{
+		UI:      "filer",
+		Sources: fi.Sources("file"),
+		SourceOptions: map[string]fi.SourceOptions{
+			"file": {Columns: []string{"filename"}},
+		},
+		UIParams: map[string]fi.Params{
+			"filer": {"sort": "filename", "sortTreesFirst": true},
+		},
+		// narrow keeps the window (as ddu-ui-filer's example).
+		ActionOptions: map[string]fi.ActionOptions{
+			"narrow": {Quit: ptr(false)},
+		},
+	})
+<
+>vim
+	autocmd FileType goda-fi-filer call s:filer()
+	function! s:filer() abort
+	  nnoremap <buffer> <CR>
+	        \ <Cmd>call goda_fi#ui#do_action('itemAction',
+	        \ #{ name: goda_fi#ui#get_item()->get('isTree')
+	        \   ? 'narrow' : 'open' })<CR>
+	  nnoremap <buffer> <Tab>
+	        \ <Cmd>call goda_fi#ui#do_action('expandItem', #{ mode: 'toggle' })<CR>
+	  nnoremap <buffer> ..
+	        \ <Cmd>call goda_fi#ui#do_action('itemAction',
+	        \ #{ name: 'narrow', params: #{ path: '..' } })<CR>
+	  nnoremap <buffer> q
+	        \ <Cmd>call goda_fi#ui#do_action('quit')<CR>
+	endfunction
+	call goda_fi#start(#{ name: 'filer' })
+<
+==============================================================================
 SOURCES                                                      *goda-fi-sources*
 
 ddu.vim's names lose their "_": "file_rec" is "filerec".
@@ -531,7 +604,10 @@ KINDS                                                          *goda-fi-kinds*
 
 file		ext/kind/file (ddu-kind-file). Actions: open (params:
 		command "edit", maxSize), append, insert, cd, execute
-		(params: command), feedkeys, loclist, quickfix, yank.
+		(params: command), feedkeys, loclist, quickfix, yank,
+		narrow (the directory of the item is the path of the
+		source; params: path, ".." for the parent; several
+		items: a session pushed with their directories).
 		Previews files and buffers.
 
 word		ext/kind/word (ddu-kind-word). Actions: append, insert,
@@ -546,6 +622,21 @@ url		ext/kind/url (ddu-kind-url). Actions: browse (with
 		register; one URL a line; the UI stays), fetch (params:
 		method "GET", headers, body, showStatus, showHeader: the
 		response in a buffer).
+
+==============================================================================
+COLUMNS                                                      *goda-fi-columns*
+
+Columns make what the items of a source show (sourceOptions columns), one
+after the other, as ddu.vim's: they are made as the items are drawn, so
+they show the trees as they are.
+
+filename	ext/column/filename (ddu-column-filename): the name of the
+		file, indented by its level, after an icon. Params:
+		collapsedIcon ("+"), expandedIcon ("-"), iconWidth (1),
+		indentationWidth (1), linkIcon ("@"),
+		maxSymlinkTargetWidth (48: "name -> target" is cut),
+		highlights (directoryIcon Special, directoryName
+		Directory, linkIcon and linkName Comment).
 
 ==============================================================================
 ALIASES                                                      *goda-fi-aliases*
@@ -624,7 +715,12 @@ fi.Filter	Name, and Filter(ctx, host, args): the items filtered (new
 
 fi.Kind		Name, and Actions: fi.Action{Description, Run}. Run
 		returns fi.ActionResult (flags as ddu.vim's: RefreshItems,
-		Redraw, Persist). Optional: Preview.
+		Redraw, Persist; SearchPath; Path, the new path of the
+		source). Optional: Preview.
+
+fi.Column	Name, Length(args) (the width it takes for args.Items),
+		and Text(args, item, startCol, endCol): fi.ColumnText{Text,
+		Highlights}, padded to endCol (fi.StrWidth).
 
 fi.UI		Name, Redraw(view), Quit(view), Actions. Optional: Acks
 		(fi.UIAcker: Vim tells when a view is drawn).
@@ -647,8 +743,11 @@ DIFFERENCES FROM DDU.VIM                                         *goda-fi-ddu*
   (|goda-fi-actions|).
 - Trees are kept by the engine: an expanded tree is gathered again with
   its parent, and the filters apply to its items.
-- Not yet: floating windows in Vim (the preview is a popup), the filer,
-  columns, isGrouped of expandItem, chooseAction, Vim side aliases (ddu#custom#alias()),
+- The filer is the UI ff with other defaults (|goda-fi-ui-filer|);
+  sortCustom is not there.
+- Not yet: floating windows in Vim (the preview is a popup), the file
+  operations of the filer (copy, move, rename...), isGrouped of
+  expandItem, chooseAction, Vim side aliases (ddu#custom#alias()),
   ddu#ui#save_cmaps().
 
 vim:tw=78:ts=8:noet:ft=help:norl:

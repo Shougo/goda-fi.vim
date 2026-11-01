@@ -1,5 +1,6 @@
 " The ff UI: a buffer of items in a split window (ui/ff/ff.go makes what it
-" shows).
+" shows). The filer (ui/filer) is this UI too, with a buffer of its own:
+" every redraw says which ("ff" or "filer").
 "
 " Every redraw comes as one call, goda_fi#ui#ff#_redraw(), with a version:
 " one older than what is shown is dropped, and once the window is closed only
@@ -13,6 +14,8 @@ function! s:st(name) abort
   if !has_key(s:state, a:name)
     let s:state[a:name] = {
           \ 'version': 0,
+          \ 'ui': 'ff',
+          \ 'levels': [],
           \ 'closed': 1,
           \ 'bufnr': -1,
           \ 'ids': [],
@@ -61,7 +64,8 @@ function! s:redraw(name, r) abort
   endif
   let st.version = a:r.version
   let st.params = a:r.params
-  call goda_fi#ui#_register(a:name, 'ff')
+  let st.ui = get(a:r, 'ui', 'ff')
+  call goda_fi#ui#_register(a:name, st.ui)
 
   let bufnr = s:buffer(a:name)
   let winid = bufwinid(bufnr)
@@ -83,6 +87,7 @@ function! s:redraw(name, r) abort
   let old_id = get(st.ids, old_row - 1, 0)
   call s:set_lines(bufnr, a:r.lines)
   let st.ids = a:r.ids
+  let st.levels = get(a:r, 'levels', [])
   let st.input = a:r.input
   call setbufvar(bufnr, 'goda_fi_version', a:r.version)
   call s:highlight(bufnr, a:r)
@@ -149,9 +154,10 @@ endfunction
 function! s:buffer(name) abort
   let st = s:st(a:name)
   if st.bufnr > 0 && bufexists(st.bufnr)
+        \ && getbufvar(st.bufnr, 'goda_fi_ui', 'ff') ==# st.ui
     return st.bufnr
   endif
-  let bufnr = bufadd('goda-fi-ff-' . a:name)
+  let bufnr = bufadd('goda-fi-' . st.ui . '-' . a:name)
   " Before loading: the name is not a file.
   call setbufvar(bufnr, '&buftype', 'nofile')
   call bufload(bufnr)
@@ -161,7 +167,7 @@ function! s:buffer(name) abort
   call setbufvar(bufnr, '&undolevels', -1)
   call setbufvar(bufnr, '&modifiable', 0)
   call setbufvar(bufnr, 'goda_fi_name', a:name)
-  call setbufvar(bufnr, 'goda_fi_ui', 'ff')
+  call setbufvar(bufnr, 'goda_fi_ui', st.ui)
   execute 'augroup goda-fi-ff-' . bufnr
     autocmd!
     execute 'autocmd BufWinLeave <buffer=' . bufnr . '> call s:on_close(' . string(a:name) . ')'
@@ -202,9 +208,10 @@ function! s:open_window(name, bufnr, p) abort
   endif
   setlocal nowrap nolist nonumber norelativenumber nospell
   setlocal nofoldenable foldcolumn=0 signcolumn=no cursorline
-  if &filetype !=# 'goda-fi-ff'
-    " Your mappings: autocmd FileType goda-fi-ff
-    setlocal filetype=goda-fi-ff
+  let ft = 'goda-fi-' . st.ui
+  if &filetype !=# ft
+    " Your mappings: autocmd FileType goda-fi-ff (goda-fi-filer)
+    execute 'setlocal filetype=' . ft
   endif
   return win_getid()
 endfunction
@@ -383,6 +390,10 @@ function! goda_fi#ui#ff#_local_action(name, action, params) abort
     call s:move(a:name, get(a:params, 'count', 1), get(a:params, 'loop', v:false))
   elseif a:action ==# 'cursorPrevious'
     call s:move(a:name, -get(a:params, 'count', 1), get(a:params, 'loop', v:false))
+  elseif a:action ==# 'cursorTreeTop'
+    call s:tree_move(a:name, -1)
+  elseif a:action ==# 'cursorTreeBottom'
+    call s:tree_move(a:name, 1)
   elseif a:action ==# 'openFilterWindow'
     call s:open_filter(a:name, a:params)
   elseif a:action ==# 'toggleAutoAction'
@@ -398,6 +409,28 @@ function! goda_fi#ui#ff#_local_action(name, action, params) abort
     return 0
   endif
   return 1
+endfunction
+
+" cursorTreeTop (dir -1) and cursorTreeBottom (1): the cursor to the first
+" or the last item of the tree it is in (its level).
+function! s:tree_move(name, dir) abort
+  let st = s:st(a:name)
+  let winid = bufwinid(st.bufnr)
+  if winid < 0 || empty(st.levels)
+    return
+  endif
+  let row = line('.', winid)
+  let level = get(st.levels, row - 1, 0)
+  let target = row
+  let i = row - 1 + a:dir
+  while i >= 0 && i < len(st.levels) && st.levels[i] >= level
+    if st.levels[i] == level
+      let target = i + 1
+    endif
+    let i += a:dir
+  endwhile
+  call win_execute(winid, 'call cursor(' . target . ', 1)')
+  call s:auto_action(a:name, 1)
 endfunction
 
 function! s:move(name, count, loop) abort

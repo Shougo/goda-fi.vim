@@ -83,6 +83,35 @@ func (a FilterArgs) IgnoreCase() bool {
 	return true
 }
 
+// Column makes a part of what items show, as ddu.vim's columns
+// (SourceOptions.Columns): the texts of the columns of an item, one after
+// the other, are its Display, and their highlights its Highlights. They
+// are made as the items are drawn (Item.TreeLevel and Item.Expanded are
+// those shown).
+type Column interface {
+	Name() string
+	// Length is the width (StrWidth) the column takes for these items.
+	Length(ctx context.Context, h sdk.Host, a ColumnArgs) (int, error)
+	// Text is the text of item: it starts at the byte column startCol
+	// (1-based) of what the item shows, and the next column at endCol
+	// (startCol + Length) cells, so pad it.
+	Text(ctx context.Context, h sdk.Host, a ColumnArgs, item Item, startCol, endCol int) (ColumnText, error)
+}
+
+// ColumnArgs are what a column works with: the items of a source shown.
+type ColumnArgs struct {
+	Context      *Context
+	Options      *Options
+	ColumnParams Params
+	Items        []Item
+}
+
+// ColumnText is the text of a column for an item, and its highlights.
+type ColumnText struct {
+	Text       string
+	Highlights []Highlight
+}
+
 // Kind is what can be done with items: its actions.
 type Kind interface {
 	Name() string
@@ -231,4 +260,9 @@ type View struct {
 	// Input is the input as it was typed: Context.Input is what filters,
 	// expanded with the option expandInput.
 	Input string
+	// Roots are the items of the paths of the sources, by index
+	// (ddu-ui-filer's root items): Word and TreePath are the path, of the
+	// kind of the source, TreeLevel -1. A UI may show them; their
+	// actions are those of the items.
+	Roots []Item
 }

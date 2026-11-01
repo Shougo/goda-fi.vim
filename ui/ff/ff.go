@@ -86,6 +86,19 @@ type Params struct {
 	// toggleAutoAction enabled it.
 	AutoAction      AutoAction `json:"autoAction"`
 	StartAutoAction bool       `json:"startAutoAction"`
+
+	// The filer's (ui/filer), as ddu-ui-filer's:
+	// DisplayRoot: a line of the path of each source before its items
+	// ("file:~/work"), its root item.
+	DisplayRoot bool `json:"displayRoot"`
+	// Sort: "filename", "natural", "extension", "size", "time" or "none";
+	// upper case reverses it. The items of a tree are sorted among them.
+	Sort string `json:"sort"`
+	// SortTreesFirst: the trees before the other items.
+	SortTreesFirst bool `json:"sortTreesFirst"`
+	// FileFilter: a regexp (Go's) the words of the items that are not
+	// trees must match.
+	FileFilter string `json:"fileFilter"`
 }
 
 // AutoAction is the param autoAction.
@@ -152,8 +165,10 @@ func vimParams(p Params, extra map[string]any) map[string]any {
 	return m
 }
 
-// UI is the ff UI. One serves every session.
+// UI is the ff UI, or the filer (NewFiler). One serves every session.
 type UI struct {
+	name  string
+	filer bool
 	mu    sync.Mutex
 	state map[string]*session
 }
@@ -166,9 +181,14 @@ type session struct {
 }
 
 // New returns the UI, to add to the builder.
-func New() *UI { return &UI{state: map[string]*session{}} }
+func New() *UI { return &UI{name: "ff", state: map[string]*session{}} }
 
-func (*UI) Name() string { return "ff" }
+// NewFiler returns the filer UI "filer" (ui/filer): the same UI, with the
+// buffer goda-fi-filer-{name} of filetype "goda-fi-filer", the root items
+// of the sources, and their items sorted.
+func NewFiler() *UI { return &UI{name: "filer", filer: true, state: map[string]*session{}} }
+
+func (u *UI) Name() string { return u.name }
 
 // Acks: goda_fi#ui#ff#_redraw() acknowledges every redraw.
 func (*UI) Acks() bool { return true }
@@ -184,12 +204,24 @@ func (u *UI) session(name string) *session {
 	return s
 }
 
-func params(v *fi.View) (Params, error) {
+func (u *UI) params(v *fi.View) (Params, error) {
 	p := DefaultParams()
+	if u.filer {
+		p = DefaultFilerParams()
+	}
 	if err := fi.Decode(v.UIParams, &p); err != nil {
 		return p, err
 	}
 	return p, nil
+}
+
+// DefaultFilerParams are those of ddu-ui-filer.
+func DefaultFilerParams() Params {
+	p := DefaultParams()
+	p.SplitDirection = "aboveleft"
+	p.DisplayRoot = true
+	p.Sort = "none"
+	return p
 }
 
 // hl is a highlight: [row, col (1-based, bytes), length (0: to the end),
@@ -203,8 +235,12 @@ const (
 
 // render is what Vim applies (goda_fi#ui#ff#_redraw).
 type render struct {
-	Version    int64          `json:"version"`
-	Name       string         `json:"name"`
+	Version int64  `json:"version"`
+	Name    string `json:"name"`
+	// UI: "ff" or "filer" (the buffer, the filetype).
+	UI string `json:"ui"`
+	// Levels are those of the items in the tree, by line.
+	Levels     []int          `json:"levels"`
 	Open       bool           `json:"open"`
 	Lines      []string       `json:"lines"`
 	IDs        []uint64       `json:"ids"`
@@ -293,7 +329,7 @@ func commonPrefix(a, b string) int {
 
 // Redraw sends the lines of the view to Vim.
 func (u *UI) Redraw(ctx context.Context, h sdk.Host, v *fi.View) error {
-	p, err := params(v)
+	p, err := u.params(v)
 	if err != nil {
 		return err
 	}
@@ -305,10 +341,18 @@ func (u *UI) Redraw(ctx context.Context, h sdk.Host, v *fi.View) error {
 		// Not opened for nothing (items may still come).
 		return nil
 	}
-	n := min(len(v.Items), max(p.MaxDisplayItems, 0))
+	items := v.Items
+	if u.filer {
+		if items, err = filerItems(v, p); err != nil {
+			return err
+		}
+	}
+	n := min(len(items), max(p.MaxDisplayItems, 0))
 	r := render{
 		Version:    v.Version,
 		Name:       v.Context.Name,
+		UI:         u.name,
+		Levels:     make([]int, n),
 		Open:       v.Open || !s.shown,
 		Lines:      make([]string, n),
 		IDs:        make([]uint64, n),
@@ -337,8 +381,13 @@ func (u *UI) Redraw(ctx context.Context, h sdk.Host, v *fi.View) error {
 		return i + 1
 	}
 	prefixes := sourcePrefixes(p.DisplaySourceName, v.Sources)
+	shown := 0
 	for i := range n {
-		it := &v.Items[i]
+		it := &items[i]
+		r.Levels[row(i)-1] = it.TreeLevel()
+		if it.TreeLevel() >= 0 {
+			shown++
+		}
 		prefix := prefixes[it.SourceName()]
 		if p.DisplayTree {
 			prefix += treePrefix(it)
@@ -375,7 +424,7 @@ func (u *UI) Redraw(ctx context.Context, h sdk.Host, v *fi.View) error {
 		r.Reset = true
 		s.input = v.Input
 	}
-	r.Status = status(v, n)
+	r.Status = status(v, shown)
 	s.shown = true
 	return h.Notify(ctx, "goda_fi#ui#ff#_redraw", r.Name, r)
 }
@@ -443,6 +492,9 @@ func (u *UI) Actions() map[string]fi.UIAction {
 
 // treePrefix is what goes before an item with displayTree, as ddu-ui-ff's.
 func treePrefix(it *fi.Item) string {
+	if it.TreeLevel() < 0 {
+		return ""
+	}
 	mark := "  "
 	switch {
 	case it.IsTree && it.Expanded():
@@ -572,7 +624,8 @@ func preview(ctx context.Context, h sdk.Host, a fi.UIActionArgs) (fi.ActionFlags
 		_, err := h.Call(ctx, "goda_fi#ui#ff#_close_preview", name)
 		return fi.None, err
 	}
-	up, err := params(a.View)
+	// The defaults of ff: the preview is the same in the filer.
+	up, err := (&UI{}).params(a.View)
 	if err != nil {
 		return fi.None, err
 	}

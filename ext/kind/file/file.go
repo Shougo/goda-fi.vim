@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/Shougo/goda-fi.vim/fi"
 	"github.com/Shougo/goda.vim/sdk"
@@ -99,7 +101,71 @@ func (Kind) Actions() map[string]fi.Action {
 		"loclist":  vimAction("Set the location list, and open it.", "loclist", fi.None),
 		"quickfix": vimAction("Set the quickfix list, and open it.", "quickfix", fi.None),
 		"yank":     vimAction("Yank the path.", "yank", fi.Persist),
+		"narrow": {
+			Description: "Make the directory of the item the path of the source (params: path; \"..\" for the parent).",
+			Run:         narrow,
+		},
 	}
+}
+
+// directory is the directory of a target: itself, or the one it is in.
+func directory(t target) string {
+	if t.Path == "" {
+		return ""
+	}
+	if t.IsDirectory {
+		return t.Path
+	}
+	if st, err := os.Stat(t.Path); err == nil && st.IsDir() {
+		return t.Path
+	}
+	return filepath.Dir(t.Path)
+}
+
+// narrow changes the path of the source, as ddu-kind-file's: to the
+// directory of the item, to params.path, or to the parent ("..", the
+// cursor on where it was). Several items: a session pushed with the
+// directory of each.
+func narrow(ctx context.Context, h sdk.Host, a fi.ActionArgs) (fi.ActionResult, error) {
+	var p struct {
+		Path string `json:"path"`
+	}
+	if err := fi.Decode(a.ActionParams, &p); err != nil {
+		return fi.ActionResult{}, err
+	}
+	current := filepath.Clean(a.SourcePath())
+	switch {
+	case p.Path == "..":
+		return fi.ActionResult{Flags: fi.RefreshItems, Path: filepath.Dir(current), SearchPath: current}, nil
+	case p.Path != "":
+		path := p.Path
+		if !filepath.IsAbs(path) && !strings.HasPrefix(path, "~") {
+			path = filepath.Join(current, path)
+		}
+		return fi.ActionResult{Flags: fi.RefreshItems, Path: a.Abs(path)}, nil
+	}
+	ts, err := targets(a.Items)
+	if err != nil || len(ts) == 0 {
+		return fi.ActionResult{}, err
+	}
+	if len(ts) > 1 {
+		var sources []any
+		for _, t := range ts {
+			sources = append(sources, map[string]any{
+				"name":    a.Items[0].SourceName(),
+				"options": map[string]any{"columns": a.SourceOptions.Columns, "path": directory(t)},
+			})
+		}
+		_, err := h.Call(ctx, "goda_fi#start", map[string]any{
+			"name": a.Context.Name, "push": true, "sources": sources,
+		})
+		return fi.ActionResult{}, err
+	}
+	dir := directory(ts[0])
+	if dir == "" {
+		return fi.ActionResult{}, nil
+	}
+	return fi.ActionResult{Flags: fi.RefreshItems, Path: dir}, nil
 }
 
 // open opens the items; binary and large files after a confirmation.

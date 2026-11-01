@@ -30,6 +30,8 @@ type Options struct {
 	UIParams      map[string]Params        `json:"uiParams"`
 	ActionOptions map[string]ActionOptions `json:"actionOptions"`
 	ActionParams  map[string]Params        `json:"actionParams"`
+	// ColumnParams are the params of the columns, by name.
+	ColumnParams map[string]Params `json:"columnParams"`
 
 	// PostFilters run on the items of all the sources together.
 	PostFilters []string `json:"postFilters"`
@@ -115,6 +117,9 @@ type SourceOptions struct {
 	// Volatile: the source gathers again when the input changes (as rg,
 	// which searches for it); the matchers apply to its items too.
 	Volatile *bool `json:"volatile,omitempty"`
+	// Columns make what the items show (Display), by name, one after the
+	// other ("filename", say).
+	Columns []string `json:"columns"`
 }
 
 // FilterOptions are the options of a filter, by name ("_" for every one).
@@ -310,6 +315,10 @@ func (o *Options) uiParams() Params { return mergeParams(o.UIParams["_"], o.UIPa
 
 func (o *Options) filterParams(name string) Params {
 	return mergeParams(o.FilterParams["_"], o.FilterParams[name])
+}
+
+func (o *Options) columnParams(name string) Params {
+	return mergeParams(o.ColumnParams["_"], o.ColumnParams[name])
 }
 
 func (o *Options) kindParams(name string) Params {

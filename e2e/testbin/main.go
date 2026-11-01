@@ -3,6 +3,7 @@
 package main
 
 import (
+	"github.com/Shougo/goda-fi.vim/ext/column/filename"
 	"github.com/Shougo/goda-fi.vim/ext/filter/converterhldir"
 	"github.com/Shougo/goda-fi.vim/ext/filter/matcherfiles"
 	"github.com/Shougo/goda-fi.vim/ext/filter/matcherhidden"
@@ -24,11 +25,14 @@ import (
 	"github.com/Shougo/goda-fi.vim/ext/source/rg"
 	"github.com/Shougo/goda-fi.vim/fi"
 	"github.com/Shougo/goda-fi.vim/ui/ff"
+	"github.com/Shougo/goda-fi.vim/ui/filer"
 )
 
 func main() {
 	b := fi.New()
 	b.AddUI(ff.New())
+	b.AddUI(filer.New())
+	b.AddColumn(filename.New(filename.DefaultParams()))
 	b.AddSource(file.New(file.Params{}))
 	b.AddSource(filerec.New(filerec.Params{}))
 	b.AddSource(buffer.New())
@@ -64,6 +68,11 @@ func main() {
 		ActionParams: map[string]fi.Params{
 			"tabopen": {"command": "tabedit"},
 		},
+		ActionOptions: map[string]fi.ActionOptions{
+			"narrow": {Quit: ptr(false)},
+		},
 	})
 	b.Main()
 }
+
+func ptr[T any](v T) *T { return &v }

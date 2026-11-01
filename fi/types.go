@@ -161,6 +161,40 @@ type ActionResult struct {
 	Flags ActionFlags
 	// SearchPath: the UI puts the cursor on the item of this path.
 	SearchPath string
+	// Path: the path of the source of the items (SourceOptions.Path) is
+	// this one from now on, and the input is cleared (as the action
+	// narrow of ddu-kind-file does); with RefreshItems, its items are
+	// gathered there.
+	Path string
+}
+
+// StrWidth is the width of s in the cells of the screen: 2 for the wide
+// characters of East Asia, 1 for the others (as ddu-column-filename's).
+func StrWidth(s string) int {
+	w := 0
+	for _, r := range s {
+		w++
+		if isWide(r) {
+			w++
+		}
+	}
+	return w
+}
+
+func isWide(r rune) bool {
+	for _, x := range wideRanges {
+		if x[0] <= r && r <= x[1] {
+			return true
+		}
+	}
+	return false
+}
+
+var wideRanges = [][2]rune{
+	{0x1100, 0x115f}, {0x2329, 0x232a}, {0x2e80, 0x303e}, {0x3040, 0x3247},
+	{0x3250, 0x4dbf}, {0x4e00, 0xa4c6}, {0xa960, 0xa97c}, {0xac00, 0xd7a3},
+	{0xf900, 0xfaff}, {0xfe10, 0xfe19}, {0xfe30, 0xfe6b}, {0xff01, 0xff60},
+	{0xffe0, 0xffe6}, {0x1f300, 0x1f64f}, {0x1f900, 0x1f9ff}, {0x20000, 0x3fffd},
 }
 
 // Previewer is what a kind shows of an item in a preview window, as in

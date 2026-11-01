@@ -26,6 +26,7 @@ type Builder struct {
 	filters map[string]Filter
 	kinds   map[string]Kind
 	uis     map[string]UI
+	columns map[string]Column
 
 	actionAliases map[string]string
 	// customActions: by type ("kind", "source") and name, the actions
@@ -45,6 +46,7 @@ func New() *Builder {
 		filters: map[string]Filter{},
 		kinds:   map[string]Kind{},
 		uis:     map[string]UI{},
+		columns: map[string]Column{},
 
 		actionAliases:   map[string]string{},
 		customActions:   map[string]map[string]map[string]Action{},
@@ -77,6 +79,9 @@ func (b *Builder) AddFilter(f Filter) *Builder { return add(b, "filter", b.filte
 
 // AddKind adds a kind under its Name.
 func (b *Builder) AddKind(k Kind) *Builder { return add(b, "kind", b.kinds, k.Name(), k) }
+
+// AddColumn adds a column under its Name.
+func (b *Builder) AddColumn(c Column) *Builder { return add(b, "column", b.columns, c.Name(), c) }
 
 // AddUI adds a UI under its Name.
 func (b *Builder) AddUI(u UI) *Builder { return add(b, "ui", b.uis, u.Name(), u) }
@@ -237,10 +242,26 @@ func (b *Builder) checkNames(where string, o *Options) []string {
 			}
 		}
 	}
+	columns := func(list []string) {
+		for _, c := range list {
+			if _, ok := b.columns[c]; !ok {
+				errs = append(errs, fmt.Sprintf("%s: unknown column %q", where, c))
+			}
+		}
+	}
 	for _, so := range o.SourceOptions {
 		filters(so.Matchers)
 		filters(so.Sorters)
 		filters(so.Converters)
+		columns(so.Columns)
+	}
+	for _, s := range o.Sources {
+		if s.Options != nil {
+			filters(s.Options.Matchers)
+			filters(s.Options.Sorters)
+			filters(s.Options.Converters)
+			columns(s.Options.Columns)
+		}
 	}
 	filters(o.PostFilters)
 	return errs

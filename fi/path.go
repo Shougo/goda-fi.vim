@@ -18,6 +18,15 @@ func (a GatherArgs) SourcePath() string {
 func (a GatherArgs) Abs(path string) string { return abs(a.Context, path) }
 
 // SourcePath is that of the source of the items (GatherArgs.SourcePath).
+func (a ActionArgs) SourcePath() string {
+	return sourcePath(a.Context, a.SourceOptions)
+}
+
+// Abs is path made absolute: "~" expanded, relative to Vim's current
+// directory.
+func (a ActionArgs) Abs(path string) string { return abs(a.Context, path) }
+
+// SourcePath is that of the source of the items (GatherArgs.SourcePath).
 func (a FilterArgs) SourcePath() string {
 	return sourcePath(a.Context, a.SourceOptions)
 }
