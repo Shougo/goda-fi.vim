@@ -48,8 +48,11 @@ type session struct {
 func newSession(e *engine, name string, h sdk.Host) *session {
 	base, cancel := context.WithCancel(context.Background())
 	s := &session{name: name, wake: make(chan struct{}, 1), base: base, cancel: cancel}
-	s.st = &state{s: s, e: e, h: h, name: name, selected: map[uint64]bool{}, views: map[int64][]Item{},
+	s.st = &state{s: s, e: e, raw: h, name: name, selected: map[uint64]bool{}, views: map[int64][]Item{},
 		expanded: map[treeKey]bool{}, nodes: map[treeKey]*treeNode{}}
+	if h != nil {
+		s.st.h = actorHost{h, s}
+	}
 	go s.run()
 	return s
 }
@@ -105,19 +108,71 @@ func (s *session) run() {
 		case <-s.base.Done():
 			return
 		}
-		for {
-			s.mu.Lock()
-			if len(s.queue) == 0 {
-				s.mu.Unlock()
-				break
-			}
-			f := s.queue[0]
-			s.queue[0] = nil
-			s.queue = s.queue[1:]
+		s.drain()
+	}
+}
+
+// drain runs what is queued, in order, until nothing is.
+func (s *session) drain() {
+	for {
+		s.mu.Lock()
+		if len(s.queue) == 0 {
 			s.mu.Unlock()
-			s.safe(f)
+			return
+		}
+		f := s.queue[0]
+		s.queue[0] = nil
+		s.queue = s.queue[1:]
+		s.mu.Unlock()
+		s.safe(f)
+	}
+}
+
+// actorHost is the host of the goroutine of a session. While it waits for
+// Vim, the session runs what is queued: Vim, asked something, may ask the
+// session something before it answers (an autocommand of a window closed
+// by the UI sends a request, say), and the session must answer it then.
+type actorHost struct {
+	sdk.Host
+	s *session
+}
+
+// wait waits for f (a call of Vim), running what the session is asked
+// meanwhile.
+func (h actorHost) wait(f func() (any, error)) (any, error) {
+	type result struct {
+		v   any
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		v, err := f()
+		done <- result{v, err}
+	}()
+	for {
+		select {
+		case r := <-done:
+			return r.v, r.err
+		case <-h.s.wake:
+			h.s.drain()
+		case <-h.s.base.Done():
+			r := <-done
+			return r.v, r.err
 		}
 	}
+}
+
+func (h actorHost) Call(ctx context.Context, fn string, args ...any) (any, error) {
+	return h.wait(func() (any, error) { return h.Host.Call(ctx, fn, args...) })
+}
+
+func (h actorHost) Eval(ctx context.Context, expr string) (any, error) {
+	return h.wait(func() (any, error) { return h.Host.Eval(ctx, expr) })
+}
+
+func (h actorHost) Cmd(ctx context.Context, cmd string) error {
+	_, err := h.wait(func() (any, error) { return nil, h.Host.Cmd(ctx, cmd) })
+	return err
 }
 
 // safe runs f, reporting a panic instead of ending the program.
@@ -171,9 +226,14 @@ type treeNode struct {
 // state is a session: the items gathered, the input, the selection, and
 // what the UI shows.
 type state struct {
-	s    *session
-	e    *engine
+	s *session
+	e *engine
+	// h is the host of what runs in the goroutine of the session (actions,
+	// the UI, filters): while it waits for Vim, it runs what is queued
+	// (actorHost). raw is the host itself, for the other goroutines (the
+	// sources).
 	h    sdk.Host
+	raw  sdk.Host
 	name string
 
 	started bool
@@ -397,11 +457,11 @@ func (st *state) gatherSource(ctx context.Context, i, gen int, a GatherArgs) {
 			}
 		}()
 		if in, ok := src.(SourceIniter); ok {
-			if err := in.OnInit(ctx, st.h, a); err != nil {
+			if err := in.OnInit(ctx, st.raw, a); err != nil {
 				return err
 			}
 		}
-		return src.Gather(ctx, st.h, a, func(items []Item) error {
+		return src.Gather(ctx, st.raw, a, func(items []Item) error {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -760,6 +820,11 @@ func (st *state) setInput(typed string) {
 	}
 	st.typed = typed
 	input := st.expand(typed)
+	if st.typed != typed {
+		// Another input came while Vim expanded this one (actorHost): it
+		// is newer.
+		return
+	}
 	st.dirty = true
 	if input == st.input {
 		return
@@ -1466,7 +1531,7 @@ func (st *state) gatherChildren(parent Item, depth int, inTree bool) {
 					err = fmt.Errorf("panic: %v", p)
 				}
 			}()
-			return src.Gather(ctx, st.h, a, func(items []Item) error {
+			return src.Gather(ctx, st.raw, a, func(items []Item) error {
 				if err := ctx.Err(); err != nil {
 					return err
 				}

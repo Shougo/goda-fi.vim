@@ -832,6 +832,11 @@ fi.UI		Name, Redraw(view), Quit(view), Actions. Optional: Acks
 A source that knows when its items changed is a fi.SourceUpdateChecker
 (Updated: since it gathered), for checkItems.
 
+Actions, UIs and filters run in the goroutine of their session, and may call
+Vim (host.Call): while they wait for it, the session answers what Vim asks
+it (an autocommand of a window an action closed, say), so what they see of
+the session may change across a call.
+
 Params arrive as fi.Params; decode them over your defaults with fi.Decode,
 which rejects unknown keys. By the time a source gathers, the current window
 may be the UI's: use Context.WinID and Context.BufNr. Paths are relative to

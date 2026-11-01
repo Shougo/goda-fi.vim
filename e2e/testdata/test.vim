@@ -403,6 +403,26 @@ function! s:run() abort
   call s:wait('split', {-> winwidth(bufwinid(bufnr('goda-fi-filer-fx'))) == &columns})
   call s:check('split', winwidth(bufwinid(bufnr('goda-fi-filer-fx'))), &columns)
   call goda_fi#ui#do_action('quit', {}, 'fx')
+  " chooseAction with an autocommand that asks the session something when
+  " the window of the actions closes (the action closes it): no deadlock.
+  augroup test-winenter
+    autocmd!
+    autocmd WinEnter * call goda_fi#ui#do_action('checkItems')
+  augroup END
+  call setreg('"', '')
+  call s:start({'name': 'ca', 'sources': [{'name': 'file', 'options': {'path': fx}}]})
+  call s:wait('ca', {-> index(s:lines('ca'), 'y.txt') >= 0})
+  execute index(s:lines('ca'), 'y.txt') + 1
+  call goda_fi#ui#do_action('chooseAction')
+  call s:wait('ca chooser', {-> index(map(s:lines('ca'), 'matchstr(v:val, "^\\S\\+")'), 'yank') >= 0})
+  call cursor(index(map(s:lines('ca'), 'matchstr(v:val, "^\\S\\+")'), 'yank') + 1, 1)
+  call goda_fi#ui#do_action('itemAction')
+  call s:wait('ca chosen', {-> getreg('"') ==# s:p(fx . '/y.txt')})
+  call s:check('ca chosen', getreg('"'), s:p(fx . '/y.txt'))
+  augroup test-winenter
+    autocmd!
+  augroup END
+  call goda_fi#ui#do_action('quit', {}, 'ca')
   call delete(fx, 'rf')
 
   " buffer: the buffers opened.

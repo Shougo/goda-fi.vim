@@ -876,3 +876,37 @@ func TestTreeGrouped(t *testing.T) {
 	ui("expandItem", idOf(t, v, "g/"), map[string]any{"maxLevel": -1})
 	waitView(t, f.ui, treeIs("g/:0+ h/:1+ i/:2+ j:3 k:3 z:0"))
 }
+
+// While an action waits for Vim, Vim may ask the session something (an
+// autocommand of a window the action closed, say): it is answered then.
+func TestReentrantCall(t *testing.T) {
+	f := newFixture(t, &listSource{name: "list", batches: [][]string{{"x"}}})
+	f.e.b.AddKindAction("word", "ask", Action{Run: func(ctx context.Context, h sdk.Host, a ActionArgs) (ActionResult, error) {
+		r, err := h.Call(ctx, "ask")
+		if r != "answered" {
+			t.Errorf("answer %v %v", r, err)
+		}
+		return ActionResult{}, err
+	}})
+	f.h.answer = func(fn string, args []any) any {
+		if fn != "ask" {
+			return nil
+		}
+		// A request of Vim for the same session, before it answers.
+		done := make(chan any, 1)
+		go func() { done <- f.call(t, "getContext", "re") }()
+		select {
+		case c := <-done:
+			if c.(Context).Name != "re" {
+				t.Errorf("context %+v", c)
+			}
+			return "answered"
+		case <-time.After(3 * time.Second):
+			t.Error("deadlock")
+			return "deadlock"
+		}
+	}
+	f.call(t, "start", map[string]any{"name": "re", "sources": []any{"list"}}, map[string]any{}, map[string]any{})
+	v := waitView(t, f.ui, done)
+	f.call(t, "itemAction", "re", "ask", []any{v.Items[0].ID()}, map[string]any{})
+}
