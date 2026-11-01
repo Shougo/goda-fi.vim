@@ -158,6 +158,9 @@ type state struct {
 	// input filters; typed is what was typed (input before expandInput).
 	input string
 	typed string
+	// vimActions are the actions of goda_fi#custom#action(): their names,
+	// by type ("kind", "source", "ui") and extension name.
+	vimActions map[string]map[string][]string
 	// items are the items filtered, as last drawn (or about to be).
 	items []Item
 	dirty bool
@@ -192,7 +195,8 @@ type state struct {
 // start begins the session with options o (the merged patch p), or resumes
 // it. With the option sync, the channel returned is closed once every item
 // is there.
-func (st *state) start(o Options, p patch, c Context, user patch) (<-chan struct{}, error) {
+func (st *state) start(o Options, p patch, c Context, user patch, vimActions map[string]map[string][]string) (<-chan struct{}, error) {
+	st.vimActions = vimActions
 	resume := boolOr(o.Resume, false) && st.started
 	if resume {
 		// The options of the session, with those of this start over.
@@ -850,11 +854,17 @@ func (st *state) actionsOf(items []Item) (*actionSet, error) {
 	if k == nil {
 		return nil, fmt.Errorf("unknown kind %q", kind)
 	}
+	// As ddu.vim: those of the kind, then its custom ones, then those of
+	// the source and its custom ones. Custom: of the configuration, then of
+	// Vim (goda_fi#custom#action()).
 	set := &actionSet{kind: kind, source: src, actions: map[string]Action{}}
 	maps.Copy(set.actions, k.Actions())
-	if s, ok := st.e.b.sources[items[0].sourceName].(SourceActioner); ok {
+	st.customActions(set.actions, "kind", kind)
+	srcName := items[0].sourceName
+	if s, ok := st.e.b.sources[srcName].(SourceActioner); ok {
 		maps.Copy(set.actions, s.Actions())
 	}
+	st.customActions(set.actions, "source", srcName)
 	ko := st.opts.kindOptions(kind)
 	set.aliases = maps.Clone(st.e.b.actionAliases)
 	if set.aliases == nil {
@@ -868,6 +878,61 @@ func (st *state) actionsOf(items []Item) (*actionSet, error) {
 		}
 	}
 	return set, nil
+}
+
+// customActions adds the custom actions of the extension name of type typ
+// ("kind" or "source") to actions.
+func (st *state) customActions(actions map[string]Action, typ, name string) {
+	maps.Copy(actions, st.e.b.customActions[typ][name])
+	for _, a := range st.vimActions[typ][name] {
+		actions[a] = vimAction(typ, name, a)
+	}
+}
+
+// vimAction is the action of goda_fi#custom#action(): the Vim function gets
+// {context, options, actionParams, items} (the items as
+// goda_fi#ui#get_item() returns them) and returns the action flags (a
+// Number; anything else is 0).
+func vimAction(typ, name, action string) Action {
+	return Action{
+		Description: "goda_fi#custom#action()",
+		Run: func(ctx context.Context, h sdk.Host, a ActionArgs) (ActionResult, error) {
+			items := make([]any, len(a.Items))
+			for i, it := range a.Items {
+				items[i] = itemDict(it)
+			}
+			flags, err := callVimAction(ctx, h, typ, name, action, map[string]any{
+				"context":      a.Context,
+				"options":      a.Options,
+				"actionParams": nonNil(a.ActionParams),
+				"items":        items,
+			})
+			return ActionResult{Flags: flags}, err
+		},
+	}
+}
+
+func callVimAction(ctx context.Context, h sdk.Host, typ, name, action string, args map[string]any) (ActionFlags, error) {
+	r, err := h.Call(ctx, "goda_fi#_call_action", typ, name, action, args)
+	if err != nil {
+		return None, err
+	}
+	switch n := r.(type) {
+	case int64:
+		return ActionFlags(n), nil
+	case float64:
+		return ActionFlags(n), nil
+	case int:
+		return ActionFlags(n), nil
+	}
+	return None, nil
+}
+
+func nonNil(p Params) Params {
+	if p == nil {
+		return Params{}
+	}
+	return p
 }
 
 // names are the names of the actions, sorted, as the option actions allows.
@@ -968,7 +1033,7 @@ func (st *state) uiAction(ctx context.Context, name string, params Params, pos a
 	if st.ui == nil {
 		return errors.New("no ui")
 	}
-	act := st.ui.Actions()[name]
+	act := st.uiActionOf(name)
 	if act == nil {
 		return fmt.Errorf("unknown action %q of ui %s", name, st.ui.Name())
 	}
@@ -998,6 +1063,31 @@ func (st *state) uiAction(ctx context.Context, name string, params Params, pos a
 		st.redrawNow()
 	}
 	return nil
+}
+
+// uiActionOf is the UI action name: of Vim (goda_fi#custom#action()), of
+// the configuration (Builder.AddUIAction), or of the UI, in this order (as
+// ddu.vim).
+func (st *state) uiActionOf(name string) UIAction {
+	ui := st.ui.Name()
+	if slices.Contains(st.vimActions["ui"][ui], name) {
+		return func(ctx context.Context, h sdk.Host, a UIActionArgs) (ActionFlags, error) {
+			items := []any{}
+			if a.Item != nil {
+				items = append(items, itemDict(*a.Item))
+			}
+			return callVimAction(ctx, h, "ui", ui, name, map[string]any{
+				"context":      a.View.Context,
+				"options":      a.View.Options,
+				"actionParams": nonNil(a.ActionParams),
+				"items":        items,
+			})
+		}
+	}
+	if act := st.e.b.customUIActions[ui][name]; act != nil {
+		return act
+	}
+	return st.ui.Actions()[name]
 }
 
 // sessionAPI is the Session of UI actions: they run in the goroutine of the

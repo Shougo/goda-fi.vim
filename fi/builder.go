@@ -28,6 +28,10 @@ type Builder struct {
 	uis     map[string]UI
 
 	actionAliases map[string]string
+	// customActions: by type ("kind", "source") and name, the actions
+	// added (AddKindAction, AddSourceAction).
+	customActions   map[string]map[string]map[string]Action
+	customUIActions map[string]map[string]UIAction
 
 	global patch
 	local  map[string]patch
@@ -42,7 +46,9 @@ func New() *Builder {
 		kinds:   map[string]Kind{},
 		uis:     map[string]UI{},
 
-		actionAliases: map[string]string{},
+		actionAliases:   map[string]string{},
+		customActions:   map[string]map[string]map[string]Action{},
+		customUIActions: map[string]map[string]UIAction{},
 
 		global: patch{},
 		local:  map[string]patch{},
@@ -98,6 +104,56 @@ func (b *Builder) AddActionAlias(alias, base string) *Builder {
 	return b
 }
 
+// AddKindAction adds the action name to the kind (or replaces one of its
+// own), as ddu.vim's kindOptions.actions. It is offered with the kind's,
+// with its options and params by name:
+//
+//	b.AddKindAction("file", "grep", fi.Action{
+//		Run: func(ctx context.Context, h sdk.Host, a fi.ActionArgs) (fi.ActionResult, error) {
+//			...
+//		},
+//	})
+//
+// Actions can also be Vim functions: goda_fi#custom#action().
+func (b *Builder) AddKindAction(kind, name string, a Action) *Builder {
+	return b.addCustomAction("kind", kind, name, a)
+}
+
+// AddSourceAction adds the action name to the items of the source, over
+// those of their kind (ddu.vim's sourceOptions.actions).
+func (b *Builder) AddSourceAction(source, name string, a Action) *Builder {
+	return b.addCustomAction("source", source, name, a)
+}
+
+func (b *Builder) addCustomAction(typ, ext, name string, a Action) *Builder {
+	if a.Run == nil {
+		b.fail("%s %q: action %q without Run", typ, ext, name)
+		return b
+	}
+	if b.customActions[typ] == nil {
+		b.customActions[typ] = map[string]map[string]Action{}
+	}
+	if b.customActions[typ][ext] == nil {
+		b.customActions[typ][ext] = map[string]Action{}
+	}
+	b.customActions[typ][ext][name] = a
+	return b
+}
+
+// AddUIAction adds the action name to the UI (or replaces one of its own),
+// as ddu.vim's uiOptions.actions.
+func (b *Builder) AddUIAction(ui, name string, a UIAction) *Builder {
+	if a == nil {
+		b.fail("ui %q: action %q is nil", ui, name)
+		return b
+	}
+	if b.customUIActions[ui] == nil {
+		b.customUIActions[ui] = map[string]UIAction{}
+	}
+	b.customUIActions[ui][name] = a
+	return b
+}
+
 // PatchGlobal merges o into the options of every session.
 func (b *Builder) PatchGlobal(o Options) *Builder {
 	p, err := toPatch(o)
@@ -124,6 +180,24 @@ func (b *Builder) PatchLocal(name string, o Options) *Builder {
 // names of the options that were never added.
 func (b *Builder) Validate() error {
 	errs := append([]string(nil), b.errs...)
+	for _, typ := range []string{"kind", "source"} {
+		for ext := range b.customActions[typ] {
+			known := false
+			if typ == "kind" {
+				_, known = b.kinds[ext]
+			} else {
+				_, known = b.sources[ext]
+			}
+			if !known {
+				errs = append(errs, fmt.Sprintf("actions of an unknown %s %q", typ, ext))
+			}
+		}
+	}
+	for ui := range b.customUIActions {
+		if _, ok := b.uis[ui]; !ok {
+			errs = append(errs, fmt.Sprintf("actions of an unknown ui %q", ui))
+		}
+	}
 	check := func(where string, p patch) {
 		o, err := decodeOptions(p)
 		if err != nil {

@@ -158,7 +158,8 @@ func (e *engine) start(ctx context.Context, h sdk.Host, params []any) (any, erro
 	if err := Decode(argMap(params, 1), &c); err != nil {
 		return nil, err
 	}
-	o, p, err := e.options(user, argMap(params, 2))
+	patches := argMap(params, 2)
+	o, p, err := e.options(user, patches)
 	if err != nil {
 		return nil, fmt.Errorf("goda-fi: %w", err)
 	}
@@ -178,7 +179,7 @@ func (e *engine) start(ctx context.Context, h sdk.Host, params []any) (any, erro
 	var wait <-chan struct{}
 	if err := s.call(func(st *state) error {
 		var err error
-		wait, err = st.start(o, p, c, user)
+		wait, err = st.start(o, p, c, user, vimActionNames(patches["actions"]))
 		return err
 	}); err != nil {
 		return nil, fmt.Errorf("goda-fi: %w", err)
@@ -388,6 +389,28 @@ func (e *engine) sessionNames(context.Context, sdk.Host, []any) (any, error) {
 	}
 	sort.Strings(names)
 	return names, nil
+}
+
+// vimActionNames are the names of the actions of goda_fi#custom#action(),
+// as the patches carry them: {type: {name: [action, ...]}}.
+func vimActionNames(v any) map[string]map[string][]string {
+	out := map[string]map[string][]string{}
+	types, _ := v.(map[string]any)
+	for typ, x := range types {
+		names, _ := x.(map[string]any)
+		for name, y := range names {
+			list, _ := y.([]any)
+			for _, a := range list {
+				if s, ok := a.(string); ok {
+					if out[typ] == nil {
+						out[typ] = map[string][]string{}
+					}
+					out[typ][name] = append(out[typ][name], s)
+				}
+			}
+		}
+	}
+	return out
 }
 
 // itemDict is an item as Vim sees it: with its ID (__id) and source.

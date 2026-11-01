@@ -105,6 +105,27 @@ endfunction
 
 let s:all = ['a.txt', 'b.go', 'msg.log', 'sub/c.txt', 'sub/deep/d.md']
 
+" Actions as Vim functions (goda_fi#custom#action()).
+function! s:grep(args) abort
+  " As ddu.vim's example: rg in the directory, in a session pushed.
+  call goda_fi#start({'name': a:args.options.name, 'push': v:true,
+        \ 'sources': [{'name': 'rg', 'params': {
+        \   'paths': [a:args.items[0].action.path], 'input': 'words'}}]})
+  return 0
+endfunction
+
+function! s:mark(args) abort
+  let g:marked = [a:args.context.name, a:args.actionParams,
+        \ map(copy(a:args.items), 'v:val.word')]
+  " Persist: the UI stays.
+  return 4
+endfunction
+
+function! s:ui_hello(args) abort
+  let g:ui_hello = map(copy(a:args.items), 'v:val.word')
+  return 0
+endfunction
+
 function! s:run() abort
   " filerec: gathered, in a window of its own, focused.
   call s:start({'name': 'rec', 'sources': ['filerec']})
@@ -362,6 +383,32 @@ function! s:run() abort
   call s:check('expandInput filter', s:wait_lines('exp', ['sub/deep/d.md']), ['sub/deep/d.md'])
   call goda_fi#redraw('exp', {'input': '$GODA_FI_NONE_SUCH_X'})
   call s:check('expandInput none', s:wait_lines('exp', ['']), [''])
+  call goda_fi#ui#do_action('quit')
+
+  " Actions as Vim functions, of a kind, a source and a UI.
+  call goda_fi#custom#action('kind', 'file', 'mark', function('s:mark'))
+  call goda_fi#custom#action('source', 'filerec,file', 'grep', function('s:grep'))
+  call goda_fi#custom#action('ui', 'ff', 'hello', function('s:ui_hello'))
+  call s:start({'name': 'custom', 'sources': ['file']})
+  call s:wait_lines('custom', ['a.txt', 'b.go', 'msg.log', 'sub/'])
+  call s:check('custom names', index(goda#request('fi', 'itemActionNames', 'custom',
+        \ [goda_fi#ui#get_item().__id]), 'mark') >= 0, 1)
+  call goda_fi#ui#do_action('itemAction', {'name': 'mark', 'params': {'x': 1}})
+  call s:check('custom kind', get(g:, 'marked', []), ['custom', {'x': 1}, ['a.txt']])
+  " Persist: shown again (closed before the action).
+  call s:wait('custom persist', {-> bufnr('%') == s:buf('custom')})
+  call goda_fi#ui#do_action('hello')
+  call s:check('custom ui', get(g:, 'ui_hello', []), ['a.txt'])
+  if executable('rg')
+    call cursor(4, 1)
+    call goda_fi#ui#do_action('itemAction', {'name': 'grep'})
+    call s:wait('custom grep', {-> s:shown('custom')
+          \ && join(s:lines('custom')) =~# 'two words'})
+    call s:check('custom grep', join(s:lines('custom')) =~# 'c\.txt:2:5: two words', 1)
+    call goda_fi#pop('custom')
+    call s:check('custom pop', s:wait_lines('custom', ['a.txt', 'b.go', 'msg.log', 'sub/']),
+          \ ['a.txt', 'b.go', 'msg.log', 'sub/'])
+  endif
   call goda_fi#ui#do_action('quit')
 
   " The binary stopped (or exited): the next start starts it again.

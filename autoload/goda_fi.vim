@@ -10,6 +10,9 @@
 " before it is started. Every start carries them.
 let s:global_patch = {}
 let s:local_patch = {}
+" The actions of goda_fi#custom#action(): {type: {name: {action: Funcref}}}.
+" Every start carries their names; the binary calls them back.
+let s:custom_actions = {'ui': {}, 'source': {}, 'kind': {}}
 
 " ---------------------------------------------------------------------------
 " Setup
@@ -176,5 +179,31 @@ function! goda_fi#_get_local() abort
 endfunction
 
 function! s:patches() abort
-  return {'global': s:global_patch, 'local': s:local_patch}
+  let actions = {}
+  for [type, names] in items(s:custom_actions)
+    let actions[type] = map(copy(names), 'keys(v:val)')
+  endfor
+  return {'global': s:global_patch, 'local': s:local_patch, 'actions': actions}
+endfunction
+
+" ---------------------------------------------------------------------------
+" Actions as Vim functions: goda_fi#custom#action() keeps them here.
+
+function! goda_fi#_custom_action(type, names, action, func) abort
+  if !has_key(s:custom_actions, a:type)
+    throw 'goda-fi: invalid custom action type: ' . a:type
+  endif
+  let l:Func = type(a:func) == v:t_func ? a:func : function(a:func)
+  for name in split(a:names, '\s*,\s*')
+    let s:custom_actions[a:type][name] = extend(
+          \ get(s:custom_actions[a:type], name, {}), {a:action : l:Func})
+  endfor
+endfunction
+
+" The binary runs an action of goda_fi#custom#action(): the action flags (a
+" Number, 0 for anything else, as ddu.vim).
+function! goda_fi#_call_action(type, name, action, args) abort
+  let l:Func = s:custom_actions[a:type][a:name][a:action]
+  let flags = call(l:Func, [a:args])
+  return type(flags) == v:t_number ? flags : 0
 endfunction

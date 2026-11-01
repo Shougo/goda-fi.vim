@@ -650,3 +650,72 @@ func TestExpandInput(t *testing.T) {
 		t.Errorf("not expanded: %q", words(v.Items))
 	}
 }
+
+// Actions of the configuration and of Vim, over those of the kind and the
+// UI.
+func TestCustomActions(t *testing.T) {
+	f := newFixture(t, &listSource{name: "list", batches: [][]string{{"x"}}})
+	var ran []string
+	f.e.b.AddKindAction("word", "mine", Action{Run: func(_ context.Context, _ sdk.Host, a ActionArgs) (ActionResult, error) {
+		ran = append(ran, "kind "+a.Items[0].Word)
+		return ActionResult{}, nil
+	}})
+	f.e.b.AddSourceAction("list", "echo", Action{Run: func(_ context.Context, _ sdk.Host, a ActionArgs) (ActionResult, error) {
+		ran = append(ran, "source echo")
+		return ActionResult{}, nil
+	}})
+	f.e.b.AddUIAction("test", "hello", func(context.Context, sdk.Host, UIActionArgs) (ActionFlags, error) {
+		ran = append(ran, "ui hello")
+		return None, nil
+	})
+	f.h.answer = func(fn string, args []any) any {
+		if fn == "goda_fi#_call_action" {
+			return int64(Persist)
+		}
+		return nil
+	}
+	f.call(t, "start", map[string]any{"name": "ca", "sources": []any{"list"}},
+		map[string]any{}, map[string]any{"actions": map[string]any{
+			"kind": map[string]any{"word": []any{"grep"}},
+			"ui":   map[string]any{"test": []any{"vimui"}},
+		}})
+	v := waitView(t, f.ui, done)
+	id := v.Items[0].ID()
+	if names := f.call(t, "itemActionNames", "ca", []any{id}); fmt.Sprint(names) != "[echo grep mine]" {
+		t.Errorf("names %v", names)
+	}
+	f.call(t, "itemAction", "ca", "mine", []any{id}, map[string]any{})
+	// The source's goes before the kind's.
+	f.call(t, "itemAction", "ca", "echo", []any{id}, map[string]any{})
+	f.call(t, "uiAction", "ca", "hello", map[string]any{}, map[string]any{})
+	if fmt.Sprint(ran) != "[kind x source echo ui hello]" || len(f.kind.ran) != 0 {
+		t.Errorf("ran %q, kind %q", ran, f.kind.ran)
+	}
+	// A Vim action: the function gets the items, its flags are followed
+	// (Persist: shown again).
+	f.call(t, "itemAction", "ca", "grep", []any{id}, map[string]any{"p": 1})
+	waitView(t, f.ui, func(v *View) bool { return v.Open })
+	var call string
+	for _, c := range f.h.log() {
+		if strings.HasPrefix(c, "goda_fi#_call_action") {
+			call = c
+		}
+	}
+	if !strings.HasPrefix(call, "goda_fi#_call_action[kind word grep map[actionParams:map[p:1] context:") ||
+		!strings.Contains(call, "items:[map[__id:") || !strings.Contains(call, "word:x") {
+		t.Errorf("call %s", call)
+	}
+	f.call(t, "uiAction", "ca", "vimui", map[string]any{}, map[string]any{})
+	if c := f.h.log()[len(f.h.log())-1]; !strings.HasPrefix(c, "goda_fi#_call_action[ui test vimui") {
+		t.Errorf("ui call %s", c)
+	}
+}
+
+func TestCustomActionUnknown(t *testing.T) {
+	b := New().AddKindAction("nosuch", "x", Action{Run: func(context.Context, sdk.Host, ActionArgs) (ActionResult, error) {
+		return ActionResult{}, nil
+	}})
+	if err := b.Validate(); err == nil || !strings.Contains(err.Error(), `unknown kind "nosuch"`) {
+		t.Errorf("err %v", err)
+	}
+}

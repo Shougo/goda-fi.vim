@@ -154,6 +154,50 @@ goda_fi#custom#patch_local({name}, {options})
 goda_fi#custom#patch_local({name}, {key}, {value})
 	The same for the sessions named {name} (Builder.PatchLocal).
 
+                                                     *goda_fi#custom#action()*
+goda_fi#custom#action({type}, {name}, {action}, {func})
+	Defines the action {action} of {name}, a UI, a source or a kind
+	({type}: "ui", "source" or "kind"; "a,b" names several), as
+	ddu#custom#action(). It is offered with their own actions and
+	goes before them, and before those of the configuration
+	(|goda-fi-actions|).
+	{func} is a |Funcref| or the name of a function, called with a
+	dictionary:
+		context		The context of the session (name, cwd,
+				bufNr, winId, input, ...).
+		options		The options of the session.
+		actionParams	The params of the action.
+		items		The items, as |goda_fi#ui#get_item()|
+				returns them (the item under the cursor
+				for a UI action).
+	It returns the action flags as a |Number| (anything else is 0):
+	1 refreshes the items, 2 redraws, 4 keeps the UI open, 8 puts the
+	cursor back where it was (ddu.vim's ActionFlags). The UI is
+	closed before the action (actionOptions quit).
+	Defined before the session starts (every start carries the names
+	of the actions).
+>vim
+	" grep in the directory of the file, in a session pushed:
+	" goda_fi#pop() goes back.
+	call goda_fi#custom#action('kind', 'file', 'grep',
+	      \ { args -> s:grep(args) })
+	function s:grep(args) abort
+	  const path = a:args.items[0].action.path
+	  call goda_fi#start(#{
+	      \   name: a:args.options.name,
+	      \   push: v:true,
+	      \   sources: [#{
+	      \     name: 'rg',
+	      \     params: #{
+	      \       paths: [isdirectory(path) ? path : fnamemodify(path, ':h')],
+	      \       input: input('Pattern: '),
+	      \     },
+	      \   }],
+	      \ })
+	  return 0
+	endfunction
+<
+
 goda_fi#custom#get_global()                      *goda_fi#custom#get_global()*
 goda_fi#custom#get_local()                        *goda_fi#custom#get_local()*
 	The patches made.
@@ -497,6 +541,31 @@ The options and params of an alias are those of its name. kindOptions
 .actions are aliases of the actions of one kind.
 
 ==============================================================================
+ACTIONS                                                      *goda-fi-actions*
+
+Actions of your own, for a kind, a source or a UI (ddu.vim's
+kindOptions.actions, sourceOptions.actions, uiOptions.actions): in Vim
+script with |goda_fi#custom#action()|, or in Go in the configuration:
+>go
+	b.AddKindAction("file", "grep", fi.Action{
+		Description: "grep in the directory",
+		Run: func(ctx context.Context, h sdk.Host, a fi.ActionArgs) (fi.ActionResult, error) {
+			// a.Items, a.ActionParams, a.Context; h calls Vim:
+			_, err := h.Call(ctx, "goda_fi#start", map[string]any{...})
+			return fi.ActionResult{}, err
+		},
+	})
+	b.AddSourceAction("filerec", "...", fi.Action{...})
+	b.AddUIAction("ff", "...", func(ctx context.Context, h sdk.Host,
+		a fi.UIActionArgs) (fi.ActionFlags, error) { ... })
+<
+As in ddu.vim, an item has the actions of its kind, then those added to
+the kind, then those of its source, then those added to the source, each
+over the ones before; those of Vim go before those of the configuration.
+A UI action of Vim goes before one of the configuration, which goes before
+the UI's own.
+
+==============================================================================
 EVENTS                                                        *goda-fi-events*
 
 User autocommands, as ddu.vim's:
@@ -546,9 +615,11 @@ DIFFERENCES FROM DDU.VIM                                         *goda-fi-ddu*
   loaded at run time. Their names lose the "_" ("file_rec" is "filerec").
 - Moving the cursor and the filter are done in Vim; actions and drawing in
   Go, with versions (|goda-fi-introduction|).
+- kindOptions.actions are other names of actions; actions of your own are
+  added with |goda_fi#custom#action()| or in the configuration
+  (|goda-fi-actions|).
 - Not yet: floating windows in Vim (the preview is a popup), trees, the
-  filer, columns, chooseAction, actions as Vim functions
-  (kindOptions.actions are other names of actions), Vim side aliases
-  (ddu#custom#alias()), ddu#ui#save_cmaps().
+  filer, columns, chooseAction, Vim side aliases (ddu#custom#alias()),
+  ddu#ui#save_cmaps().
 
 vim:tw=78:ts=8:noet:ft=help:norl:
