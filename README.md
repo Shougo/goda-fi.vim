@@ -14,7 +14,7 @@ autoAction) work, with:
   `fileexternal`, `rg`, `line`, `register`
 - filters: `matchersubstring`, `matcherhidden`, `matcherrelative`,
   `matcherfiles`, `sorteralpha`, `sortermtime`, `converterhldir`
-- kinds: `file`, `word`
+- kinds: `file`, `word`, `url`
 
 Trees and the filer come later.
 

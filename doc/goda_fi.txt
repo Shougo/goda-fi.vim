@@ -523,6 +523,16 @@ file		ext/kind/file (ddu-kind-file). Actions: open (params:
 word		ext/kind/word (ddu-kind-word). Actions: append, insert,
 		feedkeys, yank. Previews the text.
 
+url		ext/kind/url (ddu-kind-url). Actions: browse (with
+		kindParams externalOpener: "systemopen" (default: xdg-open,
+		open, the shell of MS-Windows), "openbrowser"
+		(open-browser.vim), "external" (vim-external), "uiopen"
+		(Neovim's vim.ui.open())), open (params: command "edit";
+		as buffers, for netrw and the like), yank (params:
+		register; one URL a line; the UI stays), fetch (params:
+		method "GET", headers, body, showStatus, showHeader: the
+		response in a buffer).
+
 ==============================================================================
 ALIASES                                                      *goda-fi-aliases*
 

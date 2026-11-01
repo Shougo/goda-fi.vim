@@ -12,6 +12,7 @@ package main
 import (
 	"github.com/Shougo/goda-fi.vim/ext/filter/matchersubstring"
 	kindfile "github.com/Shougo/goda-fi.vim/ext/kind/file"
+	"github.com/Shougo/goda-fi.vim/ext/kind/url"
 	"github.com/Shougo/goda-fi.vim/ext/source/buffer"
 	"github.com/Shougo/goda-fi.vim/ext/source/file"
 	"github.com/Shougo/goda-fi.vim/ext/source/fileexternal"
@@ -34,6 +35,8 @@ func main() {
 	b.AddSource(fileexternal.New(fileexternal.Params{Cmd: []string{"git", "ls-files"}}))
 	b.AddFilter(matchersubstring.New(matchersubstring.Params{HighlightMatched: "Search"}))
 	b.AddKind(kindfile.New())
+	// The URLs of filepoint.
+	b.AddKind(url.New())
 
 	// ddu#custom#patch_global()
 	b.PatchGlobal(fi.Options{
@@ -46,6 +49,7 @@ func main() {
 		},
 		KindOptions: map[string]fi.KindOptions{
 			"file": {DefaultAction: "open"},
+			"url":  {DefaultAction: "browse"},
 		},
 	})
 
