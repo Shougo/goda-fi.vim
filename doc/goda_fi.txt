@@ -193,7 +193,9 @@ goda_fi#custom#action({type}, {name}, {action}, {func})
 	      \   sources: [#{
 	      \     name: 'rg',
 	      \     params: #{
-	      \       paths: [isdirectory(path) ? path : fnamemodify(path, ':h')],
+	      \       paths: [
+	      \         isdirectory(path) ? path : fnamemodify(path, ':h'),
+	      \       ],
 	      \       input: input('Pattern: '),
 	      \     },
 	      \   }],
@@ -584,7 +586,8 @@ A configuration, with the column filename (|goda-fi-columns|):
 	        \ #{ name: goda_fi#ui#get_item()->get('isTree')
 	        \   ? 'narrow' : 'open' })<CR>
 	  nnoremap <buffer> <Tab>
-	        \ <Cmd>call goda_fi#ui#do_action('expandItem', #{ mode: 'toggle' })<CR>
+	        \ <Cmd>call goda_fi#ui#do_action(
+	        \   'expandItem', #{ mode: 'toggle' })<CR>
 	  nnoremap <buffer> ..
 	        \ <Cmd>call goda_fi#ui#do_action('itemAction',
 	        \ #{ name: 'narrow', params: #{ path: '..' } })<CR>
@@ -768,9 +771,14 @@ script with |goda_fi#custom#action()|, or in Go in the configuration:
 >go
 	b.AddKindAction("file", "grep", fi.Action{
 		Description: "grep in the directory",
-		Run: func(ctx context.Context, h sdk.Host, a fi.ActionArgs) (fi.ActionResult, error) {
+		Run: func(
+			ctx context.Context,
+			h sdk.Host,
+			a fi.ActionArgs
+		) (fi.ActionResult, error) {
 			// a.Items, a.ActionParams, a.Context; h calls Vim:
-			_, err := h.Call(ctx, "goda_fi#start", map[string]any{...})
+			_, err := h.Call(
+				ctx, "goda_fi#start", map[string]any{...})
 			return fi.ActionResult{}, err
 		},
 	})
