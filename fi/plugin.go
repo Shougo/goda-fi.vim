@@ -102,22 +102,14 @@ func (e *engine) newVersion() int64 {
 	return e.nextVersion
 }
 
-func argString(params []any, i int) string {
-	if i < len(params) {
-		if s, ok := params[i].(string); ok {
-			return s
-		}
+// sessionArg is the session of the first param (its name); rest are the
+// other params, as sdk.DecodeArgs.
+func (e *engine) sessionArg(params []any, rest ...any) (*session, error) {
+	var name string
+	if err := sdk.DecodeArgs(params, append([]any{&name}, rest...)...); err != nil {
+		return nil, err
 	}
-	return ""
-}
-
-func argMap(params []any, i int) map[string]any {
-	if i < len(params) {
-		if m, ok := params[i].(map[string]any); ok {
-			return m
-		}
-	}
-	return nil
+	return e.session(name)
 }
 
 // options are the options of a start: the builder's, Vim's patches and
@@ -156,12 +148,14 @@ func (e *engine) check(p patch) (Options, error) {
 }
 
 func (e *engine) start(ctx context.Context, h sdk.Host, params []any) (any, error) {
-	user := argMap(params, 0)
-	var c Context
-	if err := Decode(argMap(params, 1), &c); err != nil {
+	var user, context, patches map[string]any
+	if err := sdk.DecodeArgs(params, &user, sdk.Optional(&context), sdk.Optional(&patches)); err != nil {
 		return nil, err
 	}
-	patches := argMap(params, 2)
+	var c Context
+	if err := Decode(context, &c); err != nil {
+		return nil, err
+	}
 	o, p, err := e.options(user, patches)
 	if err != nil {
 		return nil, fmt.Errorf("goda-fi: %w", err)
@@ -198,11 +192,11 @@ func (e *engine) start(ctx context.Context, h sdk.Host, params []any) (any, erro
 }
 
 func (e *engine) redraw(_ context.Context, _ sdk.Host, params []any) (any, error) {
-	s, err := e.session(argString(params, 0))
+	var opts map[string]any
+	s, err := e.sessionArg(params, sdk.Optional(&opts))
 	if err != nil {
 		return nil, err
 	}
-	opts := argMap(params, 1)
 	// goda.vim handles the notifications in the order they were sent:
 	// the inputs typed come in order.
 	s.do(func(st *state) {
@@ -225,17 +219,11 @@ type actionPos struct {
 }
 
 func (e *engine) uiAction(ctx context.Context, _ sdk.Host, params []any) (any, error) {
-	s, err := e.session(argString(params, 0))
-	if err != nil {
-		return nil, err
-	}
-	name := argString(params, 1)
+	var name string
 	var ap Params
-	if m := argMap(params, 2); m != nil {
-		ap = Params(m)
-	}
 	var pos actionPos
-	if err := Decode(argMap(params, 3), &pos); err != nil {
+	s, err := e.sessionArg(params, &name, sdk.Optional(&ap), sdk.Optional(&pos))
+	if err != nil {
 		return nil, err
 	}
 	return nil, s.call(func(st *state) error { return st.uiAction(ctx, name, ap, pos) })
@@ -260,19 +248,14 @@ func ids(v any) []uint64 {
 }
 
 func (e *engine) itemAction(ctx context.Context, _ sdk.Host, params []any) (any, error) {
-	s, err := e.session(argString(params, 0))
+	var name string
+	var rawIDs any
+	var ap Params
+	s, err := e.sessionArg(params, &name, sdk.Optional(&rawIDs), sdk.Optional(&ap))
 	if err != nil {
 		return nil, err
 	}
-	name := argString(params, 1)
-	var list []uint64
-	if len(params) > 2 {
-		list = ids(params[2])
-	}
-	var ap Params
-	if m := argMap(params, 3); m != nil {
-		ap = Params(m)
-	}
+	list := ids(rawIDs)
 	return nil, s.call(func(st *state) error {
 		items := st.itemsByID(list)
 		if len(list) == 0 {
@@ -283,31 +266,26 @@ func (e *engine) itemAction(ctx context.Context, _ sdk.Host, params []any) (any,
 }
 
 func (e *engine) itemActionNames(_ context.Context, _ sdk.Host, params []any) (any, error) {
-	s, err := e.session(argString(params, 0))
+	var rawIDs any
+	s, err := e.sessionArg(params, sdk.Optional(&rawIDs))
 	if err != nil {
 		return nil, err
 	}
 	var out []string
 	err = s.call(func(st *state) error {
-		var list []uint64
-		if len(params) > 1 {
-			list = ids(params[1])
-		}
-		out = st.itemActionNames(st.itemsByID(list))
+		out = st.itemActionNames(st.itemsByID(ids(rawIDs)))
 		return nil
 	})
 	return out, err
 }
 
 func (e *engine) getItem(_ context.Context, _ sdk.Host, params []any) (any, error) {
-	s, err := e.session(argString(params, 0))
+	var id any
+	s, err := e.sessionArg(params, sdk.Optional(&id))
 	if err != nil {
 		return map[string]any{}, nil
 	}
-	var list []uint64
-	if len(params) > 1 {
-		list = ids([]any{params[1]})
-	}
+	list := ids([]any{id})
 	var out any = map[string]any{}
 	_ = s.call(func(st *state) error {
 		if items := st.itemsByID(list); len(items) > 0 {
@@ -319,7 +297,7 @@ func (e *engine) getItem(_ context.Context, _ sdk.Host, params []any) (any, erro
 }
 
 func (e *engine) getItems(_ context.Context, _ sdk.Host, params []any) (any, error) {
-	s, err := e.session(argString(params, 0))
+	s, err := e.sessionArg(params)
 	if err != nil {
 		return []any{}, nil
 	}
@@ -347,7 +325,7 @@ func (e *engine) contextOf(name string) (Context, bool) {
 }
 
 func (e *engine) getContext(_ context.Context, _ sdk.Host, params []any) (any, error) {
-	s, err := e.session(argString(params, 0))
+	s, err := e.sessionArg(params)
 	if err != nil {
 		return map[string]any{}, nil
 	}
@@ -357,7 +335,7 @@ func (e *engine) getContext(_ context.Context, _ sdk.Host, params []any) (any, e
 }
 
 func (e *engine) getCurrent(_ context.Context, _ sdk.Host, params []any) (any, error) {
-	s, err := e.session(argString(params, 0))
+	s, err := e.sessionArg(params)
 	if err != nil {
 		return map[string]any{}, nil
 	}
@@ -390,21 +368,18 @@ func dropNil(v any) any {
 }
 
 func (e *engine) event(_ context.Context, _ sdk.Host, params []any) (any, error) {
-	s, err := e.session(argString(params, 0))
+	var ev string
+	var version int64
+	s, err := e.sessionArg(params, &ev, sdk.Optional(&version))
 	if err != nil {
 		return nil, nil
-	}
-	ev := argString(params, 1)
-	var version int64
-	if len(params) > 2 {
-		version, _ = params[2].(int64)
 	}
 	s.do(func(st *state) { st.onEvent(ev, version) })
 	return nil, nil
 }
 
 func (e *engine) quitHandler(ctx context.Context, _ sdk.Host, params []any) (any, error) {
-	s, err := e.session(argString(params, 0))
+	s, err := e.sessionArg(params)
 	if err != nil {
 		return nil, nil
 	}
@@ -412,7 +387,10 @@ func (e *engine) quitHandler(ctx context.Context, _ sdk.Host, params []any) (any
 }
 
 func (e *engine) pop(ctx context.Context, _ sdk.Host, params []any) (any, error) {
-	name := argString(params, 0)
+	var name string
+	if err := sdk.DecodeArgs(params, &name); err != nil {
+		return nil, err
+	}
 	e.mu.Lock()
 	stack := e.pushed[name]
 	cur := e.sessions[name]
