@@ -781,7 +781,13 @@ func (st *state) redrawNow() {
 	if len(v.Items) > 0 || v.Context.Done {
 		st.initCur = false
 	}
-	if err := st.ui.Redraw(st.s.base, st.h, v); err != nil {
+	err := st.ui.Redraw(st.s.base, st.h, v)
+	switch {
+	case errors.Is(err, ErrNotDrawn):
+		if st.inflight == v.Version {
+			st.inflight = 0
+		}
+	case err != nil:
 		st.report(fmt.Errorf("ui %s: %w", st.ui.Name(), err))
 	}
 }

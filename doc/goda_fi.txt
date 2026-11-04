@@ -835,7 +835,8 @@ fi.Column	Name, Length(args) (the width it takes for args.Items),
 		Highlights}, padded to endCol (fi.StrWidth).
 
 fi.UI		Name, Redraw(view), Quit(view), Actions. Optional: Acks
-		(fi.UIAcker: Vim tells when a view is drawn).
+		(fi.UIAcker: Vim tells when a view is drawn; Redraw
+		returns fi.ErrNotDrawn when it sent nothing).
 
 A source that knows when its items changed is a fi.SourceUpdateChecker
 (Updated: since it gathered), for checkItems.

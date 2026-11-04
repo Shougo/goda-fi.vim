@@ -136,6 +136,8 @@ func (k *wordKind) Actions() map[string]Action {
 type testUI struct {
 	views chan *View
 	quits chan struct{}
+	// skipped are the versions emptyUI did not draw.
+	skipped chan int64
 }
 
 func newTestUI() *testUI {
@@ -508,6 +510,53 @@ func TestAcks(t *testing.T) {
 	f.call(t, "event", "k", "drawn", v.Version)
 	v = waitView(t, f.ui, done)
 	if words(v.Items) != "a b" {
+		t.Errorf("items %q", words(v.Items))
+	}
+}
+
+// emptyUI acknowledges nothing it draws, and draws nothing for no items
+// (as ff with ignoreEmpty).
+type emptyUI struct{ *testUI }
+
+func (emptyUI) Acks() bool { return true }
+func (u emptyUI) Redraw(ctx context.Context, h sdk.Host, v *View) error {
+	if len(v.Items) == 0 {
+		u.skipped <- v.Version
+		return ErrNotDrawn
+	}
+	return u.testUI.Redraw(ctx, h, v)
+}
+
+// A redraw that was not drawn is not waited for.
+func TestNotDrawn(t *testing.T) {
+	ui := emptyUI{newTestUI()}
+	ui.skipped = make(chan int64, 16)
+	src := &listSource{name: "list", batches: [][]string{{"a"}}, gate: make(chan struct{})}
+	b := New().AddUI(ui).AddKind(&wordKind{}).AddSource(src)
+	b.PatchGlobal(Options{UI: "test"})
+	p, err := b.Plugin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fixture{e: p.(*engine), h: &fakeHost{}, ui: ui.testUI}
+	t.Cleanup(func() {
+		for _, s := range f.e.sessions {
+			s.close()
+		}
+	})
+	f.call(t, "start", map[string]any{"name": "n", "sources": []any{"list"}}, map[string]any{}, map[string]any{})
+	select {
+	case <-ui.skipped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no redraw before the items")
+	}
+	close(src.gate)
+	start := time.Now()
+	v := waitView(t, f.ui, func(v *View) bool { return len(v.Items) > 0 })
+	if d := time.Since(start); d >= ackTimeout/2 {
+		t.Errorf("drawn after %v: waited for the acknowledgement", d)
+	}
+	if words(v.Items) != "a" {
 		t.Errorf("items %q", words(v.Items))
 	}
 }

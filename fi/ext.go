@@ -2,6 +2,7 @@ package fi
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/Shougo/goda.vim/sdk"
@@ -173,6 +174,11 @@ type UI interface {
 type UIAcker interface {
 	Acks() bool
 }
+
+// ErrNotDrawn is what Redraw of a UIAcker returns when it sent nothing to
+// Vim (as ff with ignoreEmpty before there are items): no acknowledgement
+// comes, so the next redraw does not wait for one.
+var ErrNotDrawn = errors.New("not drawn")
 
 // UIAction is an action of a UI.
 type UIAction func(ctx context.Context, h sdk.Host, a UIActionArgs) (ActionFlags, error)

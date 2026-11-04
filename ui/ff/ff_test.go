@@ -2,6 +2,7 @@ package ff
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
@@ -92,7 +93,7 @@ func TestIgnoreEmpty(t *testing.T) {
 	h := &host{}
 	v := view(fi.Params{"ignoreEmpty": true})
 	v.Open = true
-	if err := u.Redraw(context.Background(), h, v); err != nil || h.r != nil {
+	if err := u.Redraw(context.Background(), h, v); !errors.Is(err, fi.ErrNotDrawn) || h.r != nil {
 		t.Fatalf("drawn: %v %+v", err, h.r)
 	}
 	v = view(fi.Params{"ignoreEmpty": true}, fi.Item{Word: "a"})

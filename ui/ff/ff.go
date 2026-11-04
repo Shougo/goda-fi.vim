@@ -341,8 +341,9 @@ func (u *UI) Redraw(ctx context.Context, h sdk.Host, v *fi.View) error {
 		s.shown = false
 	}
 	if p.IgnoreEmpty && !s.shown && len(v.Items) == 0 {
-		// Not opened for nothing (items may still come).
-		return nil
+		// Not opened for nothing (items may still come); no
+		// acknowledgement comes for it.
+		return fi.ErrNotDrawn
 	}
 	items := v.Items
 	if u.filer {
