@@ -2,11 +2,13 @@ package rg
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Shougo/goda-fi.vim/ext/kind/file"
 	"github.com/Shougo/goda-fi.vim/fi"
@@ -95,4 +97,55 @@ func TestVolatile(t *testing.T) {
 	// A pattern being typed is no error; nothing found is none.
 	gather(t, root, so, nil, "fo(")
 	gather(t, root, fi.SourceOptions{}, fi.Params{"input": "zzz"}, "")
+}
+
+// TestMain runs the test binary as a slow rg when GODA_FI_SLOW_RG is set: it
+// prints a match and waits, as rg searching a large tree.
+func TestMain(m *testing.M) {
+	if os.Getenv("GODA_FI_SLOW_RG") != "" {
+		fmt.Println("a.txt:1:1:foo")
+		time.Sleep(30 * time.Second)
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
+// The matches are handed over before rg ends.
+func TestStreaming(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Skip(err)
+	}
+	t.Setenv("GODA_FI_SLOW_RG", "1")
+	root := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	got := make(chan []fi.Item, 1)
+	done := make(chan error, 1)
+	go func() {
+		done <- New(Params{Cmd: exe}).Gather(ctx, nil, fi.GatherArgs{
+			Context:      &fi.Context{Cwd: root, Path: root},
+			SourceParams: fi.Params{"input": "foo"},
+		}, func(items []fi.Item) error {
+			select {
+			case got <- items:
+			default:
+			}
+			return nil
+		})
+	}()
+	select {
+	case items := <-got:
+		if w := words(items); w != "a.txt:1:1: foo" {
+			t.Fatalf("items %q", w)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("no items before rg ends")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the gathering does not end when canceled")
+	}
 }

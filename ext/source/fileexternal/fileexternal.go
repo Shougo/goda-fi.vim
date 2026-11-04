@@ -5,7 +5,6 @@
 package fileexternal
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -15,6 +14,7 @@ import (
 	"strings"
 
 	srcfile "github.com/Shougo/goda-fi.vim/ext/source/file"
+	"github.com/Shougo/goda-fi.vim/ext/source/internal/linestream"
 	"github.com/Shougo/goda-fi.vim/fi"
 	"github.com/Shougo/goda.vim/sdk"
 )
@@ -23,8 +23,8 @@ import (
 type Params struct {
 	// Cmd is the command and its arguments: ["fd", ".", "-H", "-t", "f"].
 	Cmd []string `json:"cmd"`
-	// UpdateItems: the items are handed over by this many (the first
-	// 1000 at once).
+	// UpdateItems: the items are handed over by this many at most (and
+	// every little while).
 	UpdateItems int `json:"updateItems"`
 }
 
@@ -62,36 +62,44 @@ func (s source) Gather(ctx context.Context, _ sdk.Host, a fi.GatherArgs, emit fu
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	size := 1000
-	items := make([]fi.Item, 0, size)
-	sc := bufio.NewScanner(out)
-	sc.Buffer(make([]byte, 64*1024), 1024*1024)
+	var items []fi.Item
 	var emitErr error
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
+	flush := func() bool {
+		if len(items) == 0 {
+			return true
+		}
+		emitErr = emit(items)
+		items = nil
+		return emitErr == nil
+	}
+	readErr := linestream.Read(out, 1024*1024, func(l []byte) bool {
+		line := strings.TrimSpace(string(l))
 		if line == "" {
-			continue
+			return true
 		}
 		path := line
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(root, path)
 		}
 		if _, err := os.Stat(path); err != nil {
-			continue
+			return true
 		}
 		items = append(items, srcfile.Item(root, path, false))
-		if len(items) >= size {
-			if emitErr = emit(items); emitErr != nil {
-				break
-			}
-			items = make([]fi.Item, 0, p.UpdateItems)
-			size = p.UpdateItems
+		if len(items) >= p.UpdateItems {
+			return flush()
 		}
+		return true
+	}, flush)
+	if emitErr == nil {
+		flush()
 	}
-	if emitErr != nil {
+	if emitErr != nil || readErr != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
-		return emitErr
+		if emitErr != nil {
+			return emitErr
+		}
+		return readErr
 	}
 	if err := cmd.Wait(); err != nil && ctx.Err() == nil {
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
@@ -99,5 +107,5 @@ func (s source) Gather(ctx context.Context, _ sdk.Host, a fi.GatherArgs, emit fu
 		}
 		return fmt.Errorf("%s: %w", p.Cmd[0], err)
 	}
-	return emit(items)
+	return nil
 }

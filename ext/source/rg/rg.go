@@ -5,7 +5,6 @@
 package rg
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -19,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/Shougo/goda-fi.vim/ext/kind/file"
+	"github.com/Shougo/goda-fi.vim/ext/source/internal/linestream"
 	"github.com/Shougo/goda-fi.vim/fi"
 	"github.com/Shougo/goda.vim/sdk"
 )
@@ -141,37 +141,35 @@ func (s source) Gather(ctx context.Context, _ sdk.Host, a fi.GatherArgs, emit fu
 	}
 	useJSON := slices.Contains(p.Args, "--json")
 	b := builder{p: p, cwd: cwd, input: input, seen: map[string]bool{}}
-	size, total := 1000, 0
+	total := 0
 	var items []fi.Item
-	sc := bufio.NewScanner(out)
-	sc.Buffer(make([]byte, 64*1024), 16*1024*1024)
 	var emitErr error
-	for sc.Scan() {
+	flush := func() bool {
+		if len(items) == 0 {
+			return true
+		}
+		emitErr = emit(items)
+		items = nil
+		return emitErr == nil
+	}
+	readErr := linestream.Read(out, 16*1024*1024, func(line []byte) bool {
 		var it *fi.Item
 		if useJSON {
-			it = b.parseJSON(sc.Bytes())
+			it = b.parseJSON(line)
 		} else {
-			it = b.parseLine(sc.Text())
+			it = b.parseLine(string(line))
 		}
 		if it == nil || it.Word == "" {
-			continue
+			return true
 		}
 		items = b.push(items, *it)
 		total++
-		if total >= p.MaxEnqueSize {
-			break
-		}
-		if len(items) >= size {
-			if emitErr = emit(items); emitErr != nil {
-				break
-			}
-			items, size = nil, 100000
-		}
+		return total < p.MaxEnqueSize
+	}, flush)
+	if emitErr == nil {
+		flush()
 	}
-	if emitErr == nil && len(items) > 0 {
-		emitErr = emit(items)
-	}
-	if total >= p.MaxEnqueSize || emitErr != nil {
+	if total >= p.MaxEnqueSize || emitErr != nil || readErr != nil {
 		_ = cmd.Process.Kill()
 	}
 	werr := cmd.Wait()
