@@ -37,7 +37,8 @@ func (source) Gather(ctx context.Context, h sdk.Host, _ fi.GatherArgs, emit func
 	items := make([]fi.Item, 0, len(regs))
 	for _, r := range regs {
 		text := strings.Join(r.Contents, "\n")
-		text = strings.NewReplacer("\xfd", "", "\x80", "").Replace(text)
+		// (The special keys of a macro are not there: the Vim script
+		// removed them, where they are bytes.)
 		if text == "" {
 			continue
 		}

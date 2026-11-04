@@ -141,6 +141,11 @@ function! s:run() abort
   " filerec: gathered, in a window of its own, focused.
   call s:start({'name': 'rec', 'sources': ['filerec']})
   call s:check('filerec', s:wait_lines('rec', s:all), s:all)
+  " The registers: without the special keys of a macro, with the UTF-8
+  " characters that have the byte 0x80 ("、" is E3 80 81).
+  call setreg('q', "a\<Left>b、一。")
+  call s:check('register', filter(goda_fi#source#register#_list(), {_, r -> r.name ==# 'q'})[0].contents,
+        \ ['ab、一。'])
   call s:check('focus', bufnr('%'), s:buf('rec'))
   call s:check('windows', winnr('$'), 2)
   call s:check('filetype', &filetype, 'goda-fi-ff')
