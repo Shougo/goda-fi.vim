@@ -30,7 +30,7 @@ skips redraws instead of queueing them.
 ## Try it
 
 You need Go 1.26 or newer, and Vim 9.1 or newer (with `+job +channel`) or
-Neovim 0.10 or newer. Install `Shougo/goda.vim` and `Shougo/goda-fi.vim` with
+Neovim 0.11 or newer. Install `Shougo/goda.vim` and `Shougo/goda-fi.vim` with
 your plugin manager, then create your configuration, a Go module of your own
 (keep it in your dotfiles; `examples/config` is only a template to copy):
 
