@@ -5,6 +5,11 @@
 " gathers, filters and acts; this file starts it and passes on what is asked.
 " The UIs have their own Vim script (autoload/goda_fi/ui/*.vim).
 
+" The version of this Vim script that the binary goes with (ScriptVersion of
+" its Go side): goda.vim refuses a binary of another one, and says to build
+" it again. Bumped with it when they no longer work together.
+let s:version = #{version: 1, module: 'github.com/Shougo/goda-fi.vim'}
+
 " Patches of the options made at run time, as ddu#custom#patch_*(). They live
 " here, not in the binary: they survive a restart of it, and they can be made
 " before it is started. Every start carries them.
@@ -70,7 +75,7 @@ function! goda_fi#build() abort
   if rename(tmp, bin) != 0
     throw 'goda-fi: cannot replace ' . bin
   endif
-  call goda#register('fi', function('s:start'))
+  call goda#register('fi', function('s:start'), s:version)
   echomsg 'goda-fi: built ' . bin
 endfunction
 
@@ -106,7 +111,7 @@ function! s:start() abort
 endfunction
 
 " (Again after a build: a start that failed is tried again.)
-call goda#register('fi', function('s:start'))
+call goda#register('fi', function('s:start'), s:version)
 
 " ---------------------------------------------------------------------------
 " API (that of ddu.vim)

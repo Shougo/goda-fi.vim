@@ -304,6 +304,10 @@ type brokenPlugin struct{ err error }
 
 func (brokenPlugin) Name() string { return PluginName }
 
+// ScriptVersion: a broken configuration says why, not that the binary is to
+// be built again.
+func (brokenPlugin) ScriptVersion() int { return ScriptVersion }
+
 func (p brokenPlugin) Handlers() map[string]sdk.Handler {
 	hs := map[string]sdk.Handler{}
 	for _, name := range handlerNames {

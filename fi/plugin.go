@@ -26,6 +26,14 @@ func newEngine(b *Builder) *engine {
 
 func (e *engine) Name() string { return PluginName }
 
+// ScriptVersion is the version of the Vim script (autoload/goda_fi.vim) this
+// binary goes with (sdk.ScriptVersioner): goda.vim refuses a binary of
+// another one and says to build it again. Bump it with s:version there when
+// the Vim script and the binary no longer work together.
+const ScriptVersion = 1
+
+func (e *engine) ScriptVersion() int { return ScriptVersion }
+
 // handlerNames are the methods of the plugin (brokenPlugin fails them).
 var handlerNames = []string{
 	"start", "redraw", "uiAction", "itemAction", "itemActionNames",
