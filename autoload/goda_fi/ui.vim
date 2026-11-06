@@ -35,7 +35,7 @@ function! goda_fi#ui#do_action(action, params = {}, name = '') abort
       return
     endif
     let pos = ui !=# '' ? goda_fi#ui#{ui}#_pos(name) : {}
-    call goda#request('fi', 'uiAction', name, a:action, a:params, pos)
+    call goda_fi#util#request_wait('fi', 'uiAction', name, a:action, a:params, pos)
   catch
     call goda_fi#util#print_error(v:exception)
   endtry

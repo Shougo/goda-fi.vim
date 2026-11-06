@@ -31,3 +31,10 @@ function! goda_fi#util#doautocmd(name) abort
     execute 'doautocmd <nomodeline> User' a:name
   endif
 endfunction
+
+" goda#request() without g:goda#request_timeout: for the actions, which may
+" wait for the user (input(), confirm()), as long as they take. (An older
+" goda.vim has no goda#request_wait(): goda#request() then.)
+function! goda_fi#util#request_wait(...) abort
+  return call(exists('*goda#request_wait') ? 'goda#request_wait' : 'goda#request', a:000)
+endfunction

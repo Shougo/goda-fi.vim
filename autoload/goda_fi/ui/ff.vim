@@ -421,7 +421,7 @@ function! goda_fi#ui#ff#_local_action(name, action, params) abort
   elseif a:action ==# 'cursorPrevious'
     call s:move(a:name, -get(a:params, 'count', 1), get(a:params, 'loop', v:false))
   elseif a:action ==# 'inputAction'
-    call goda#request('fi', 'uiAction', a:name, 'inputActionNames', a:params,
+    call goda_fi#util#request_wait('fi', 'uiAction', a:name, 'inputActionNames', a:params,
           \ goda_fi#ui#ff#_pos(a:name))
   elseif a:action ==# 'cursorTreeTop'
     call s:tree_move(a:name, -1)

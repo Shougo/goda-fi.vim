@@ -124,7 +124,7 @@ endfunction
 
 " Run the item action on items (from goda_fi#ui#get_item(), say).
 function! goda_fi#item_action(name, action, items, params = {}) abort
-  call goda#request('fi', 'itemAction', a:name, a:action,
+  call goda_fi#util#request_wait('fi', 'itemAction', a:name, a:action,
         \ map(copy(a:items), 'get(v:val, "__id", 0)'), a:params)
 endfunction
 
