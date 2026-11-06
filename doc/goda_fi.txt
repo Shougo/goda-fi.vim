@@ -54,7 +54,9 @@ dotfiles):
 	go mod tidy
 <
 Build it (again after every change of the configuration, and after
-updating goda-fi.vim with `go get -u`):
+updating goda-fi.vim with `go get -u`; with |g:goda#workspace|, which
+goda-pm.vim sets, the build uses the plugins installed, and no `go get -u` is
+needed):
 >vim
 	:call goda_fi#build()
 <

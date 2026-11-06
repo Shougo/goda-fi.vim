@@ -51,40 +51,13 @@ function! s:config_dir() abort
   return (has('nvim') ? stdpath('config') : expand('~/.vim')) . '/goda-fi'
 endfunction
 
-" Build the user's configuration (a Go module in g:goda_fi#config_dir), after
-" "go mod tidy". The running binary is stopped, and the new one starts with
-" the next request. When the build fails, the previous binary keeps running.
+" Build the user's configuration (a Go module in g:goda_fi#config_dir) with
+" goda#build(): with the plugins installed (g:goda#workspace). The running
+" binary is stopped, and the new one starts with the next request. When the
+" build fails, the previous binary keeps running.
 function! goda_fi#build() abort
-  let dir = s:config_dir()
-  if !isdirectory(dir)
-    throw 'goda-fi: no config directory: ' . dir
-  endif
-  let bin = s:default_bin()
-  call mkdir(fnamemodify(bin, ':h'), 'p')
-  let tidy = system('go -C ' . shellescape(dir) . ' mod tidy')
-  let tidy_failed = v:shell_error
-  let tmp = bin . '.new' . (has('win32') ? '.exe' : '')
-  let out = system('go -C ' . shellescape(dir) . ' build -o ' . shellescape(tmp) . ' .')
-  if v:shell_error
-    throw 'goda-fi: go build failed:' . "\n" . out
-          \ . (tidy_failed ? "\n" . 'go mod tidy failed too:' . "\n" . tidy : '')
-  endif
-  if s:own_binary()
-    call goda#stop('fi')
-  endif
-  if rename(tmp, bin) != 0
-    throw 'goda-fi: cannot replace ' . bin
-  endif
+  call goda#build(#{name: 'fi', dir: s:config_dir(), bin: s:default_bin()})
   call goda#register('fi', function('s:start'), s:version)
-  echomsg 'goda-fi: built ' . bin
-endfunction
-
-" Is the plugin served by the binary of goda-fi (not by another plugin's
-" binary that contains it, see the README)?
-function! s:own_binary() abort
-  let plugins = goda#plugins()
-  return has_key(plugins, 'fi')
-        \ && plugins.fi ==# fnamemodify(s:default_bin(), ':p')
 endfunction
 
 " Start the binary: goda.vim calls it when a request needs the plugin "fi"
