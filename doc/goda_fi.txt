@@ -331,7 +331,10 @@ actions		The item actions offered (all when unset).
 
 input		The input to start with.
 
-resume		Show the session as it was, without gathering again.
+resume		Show the session as it was, without gathering again: when
+		it was done, in the same current directory, with the same
+		sources (when they are given), as ddu.vim.  Otherwise it
+		starts again.
 
 refresh		Gather again when resuming.
 

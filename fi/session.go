@@ -7,6 +7,7 @@ import (
 	"log"
 	"maps"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -300,7 +301,7 @@ type state struct {
 // is there.
 func (st *state) start(o Options, p patch, c Context, user patch, vimActions map[string]map[string][]string) (<-chan struct{}, error) {
 	st.vimActions = vimActions
-	resume := boolOr(o.Resume, false) && st.started
+	resume := boolOr(o.Resume, false) && st.started && st.resumable(o, c, user)
 	if resume {
 		// The options of the session, with those of this start over.
 		u := maps.Clone(user)
@@ -374,6 +375,20 @@ func (st *state) start(o Options, p patch, c Context, user patch, vimActions map
 		return nil, nil
 	}
 	return wait, nil
+}
+
+// resumable says whether the start with o resumes the session, as ddu.vim:
+// only when it was done, in the same current directory, with the same
+// sources (when the start gives them). Otherwise it starts again: its
+// items, and the path of its sources, are of that directory.
+func (st *state) resumable(o Options, c Context, user patch) bool {
+	if !st.ctx.Done || c.Cwd != st.ctx.Cwd {
+		return false
+	}
+	if _, ok := user["sources"]; ok && !reflect.DeepEqual(o.Sources, st.opts.Sources) {
+		return false
+	}
+	return true
 }
 
 // gather gathers the sources of these indexes again (all, for nil). With

@@ -393,6 +393,41 @@ func TestResume(t *testing.T) {
 	}
 }
 
+// pathSource gives the path of its source.
+type pathSource struct{}
+
+func (pathSource) Name() string { return "path" }
+func (pathSource) Kind() string { return "word" }
+func (pathSource) Gather(_ context.Context, _ sdk.Host, a GatherArgs, emit func([]Item) error) error {
+	return emit([]Item{{Word: a.SourcePath()}})
+}
+
+func TestResumeOnlyWhereItWasStarted(t *testing.T) {
+	// As ddu.vim: a session is resumed only in the same current directory,
+	// with the same sources; otherwise it starts again, there.
+	dir1, dir2 := t.TempDir(), t.TempDir()
+	f := newFixture(t, pathSource{}, &listSource{name: "list", batches: [][]string{{"a"}}})
+	start := func(cwd string, sources ...any) *View {
+		t.Helper()
+		f.call(t, "start", map[string]any{"name": "c", "sources": sources, "resume": true},
+			map[string]any{"cwd": cwd}, map[string]any{})
+		return waitView(t, f.ui, done)
+	}
+	v1 := start(dir1, "path")
+	if words(v1.Items) != dir1 {
+		t.Fatalf("started: %q", words(v1.Items))
+	}
+	if v := start(dir1, "path"); v.Items[0].ID() != v1.Items[0].ID() {
+		t.Errorf("not resumed in the same directory: %q", words(v.Items))
+	}
+	if v := start(dir2, "path"); words(v.Items) != dir2 {
+		t.Errorf("in another directory: %q, want %q", words(v.Items), dir2)
+	}
+	if v := start(dir2, "path", "list"); words(v.Items) != dir2+" a" {
+		t.Errorf("with other sources: %q", words(v.Items))
+	}
+}
+
 func TestSync(t *testing.T) {
 	src := &listSource{name: "list", batches: [][]string{{"a"}, {"b"}}}
 	f := newFixture(t, src)
