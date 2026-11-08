@@ -86,19 +86,6 @@ type Params struct {
 	// toggleAutoAction enabled it.
 	AutoAction      AutoAction `json:"autoAction"`
 	StartAutoAction bool       `json:"startAutoAction"`
-
-	// The filer's (ui/filer), as ddu-ui-filer's:
-	// DisplayRoot: a line of the path of each source before its items
-	// ("file:~/work"), its root item.
-	DisplayRoot bool `json:"displayRoot"`
-	// Sort: "filename", "natural", "extension", "size", "time" or "none";
-	// upper case reverses it. The items of a tree are sorted among them.
-	Sort string `json:"sort"`
-	// SortTreesFirst: the trees before the other items.
-	SortTreesFirst bool `json:"sortTreesFirst"`
-	// FileFilter: a regexp (Go's) the words of the items that are not
-	// trees must match.
-	FileFilter string `json:"fileFilter"`
 }
 
 // AutoAction is the param autoAction.
@@ -165,12 +152,28 @@ func vimParams(p Params, extra map[string]any) map[string]any {
 	return m
 }
 
-// UI is the ff UI, or the filer (NewFiler). One serves every session.
+// UI is the ff UI, or a UI made of it (NewUI). One serves every session.
 type UI struct {
-	name  string
-	filer bool
+	o     Options
 	mu    sync.Mutex
 	state map[string]*session
+}
+
+// Options make another UI of ff: its name, its params,
+// the items it shows.
+type Options struct {
+	// Name of the UI: its buffer is goda-fi-{Name}-{session}, of filetype
+	// "goda-fi-{Name}", and autoload/goda_fi/ui/{Name}.vim gives its
+	// _pos(), _visible() and _local_action() (those of ff).
+	Name string
+	// Params are those of ff in the uiParams (nil: DefaultParams() and
+	// them, with Decode).
+	Params func(uiParams any) (Params, error)
+	// Items are those shown (nil: v.Items).
+	Items func(v *fi.View) ([]fi.Item, error)
+	// Vars are the variables set in the buffer (b:) and its tab page (t:)
+	// at each redraw (nil: none).
+	Vars func(v *fi.View) map[string]any
 }
 
 type session struct {
@@ -181,14 +184,17 @@ type session struct {
 }
 
 // New returns the UI, to add to the builder.
-func New() *UI { return &UI{name: "ff", state: map[string]*session{}} }
+func New() *UI { return NewUI(Options{Name: "ff"}) }
 
-// NewFiler returns the filer UI "filer" (ui/filer): the same UI, with the
-// buffer goda-fi-filer-{name} of filetype "goda-fi-filer", the root items
-// of the sources, and their items sorted.
-func NewFiler() *UI { return &UI{name: "filer", filer: true, state: map[string]*session{}} }
+// NewUI returns the UI of ff made with o.
+func NewUI(o Options) *UI {
+	if o.Params == nil {
+		o.Params = Decode
+	}
+	return &UI{o: o, state: map[string]*session{}}
+}
 
-func (u *UI) Name() string { return u.name }
+func (u *UI) Name() string { return u.o.Name }
 
 // Acks: goda_fi#ui#ff#_redraw() acknowledges every redraw.
 func (*UI) Acks() bool { return true }
@@ -204,24 +210,15 @@ func (u *UI) session(name string) *session {
 	return s
 }
 
-func (u *UI) params(v *fi.View) (Params, error) {
+func (u *UI) params(v *fi.View) (Params, error) { return u.o.Params(v.UIParams) }
+
+// Decode gives the params of ff: DefaultParams() and uiParams.
+func Decode(uiParams any) (Params, error) {
 	p := DefaultParams()
-	if u.filer {
-		p = DefaultFilerParams()
-	}
-	if err := fi.Decode(v.UIParams, &p); err != nil {
+	if err := fi.Decode(uiParams, &p); err != nil {
 		return p, err
 	}
 	return p, nil
-}
-
-// DefaultFilerParams are those of ddu-ui-filer.
-func DefaultFilerParams() Params {
-	p := DefaultParams()
-	p.SplitDirection = "aboveleft"
-	p.DisplayRoot = true
-	p.Sort = "none"
-	return p
 }
 
 // hl is a highlight: [row, col (1-based, bytes), length (0: to the end),
@@ -237,13 +234,12 @@ const (
 type render struct {
 	Version int64  `json:"version"`
 	Name    string `json:"name"`
-	// UI: "ff" or "filer" (the buffer, the filetype).
+	// UI: the name of the UI (the buffer, the filetype).
 	UI string `json:"ui"`
 	// Levels are those of the items in the tree, by line.
 	Levels []int `json:"levels"`
-	// Path is that of the first source (the filer's
-	// b:goda_fi_ui_filer_path and t:goda_fi_ui_filer_path).
-	Path       string         `json:"path"`
+	// Vars are set in the buffer (b:) and its tab page (t:).
+	Vars       map[string]any `json:"vars"`
 	Open       bool           `json:"open"`
 	Lines      []string       `json:"lines"`
 	IDs        []uint64       `json:"ids"`
@@ -346,18 +342,26 @@ func (u *UI) Redraw(ctx context.Context, h sdk.Host, v *fi.View) error {
 		return fi.ErrNotDrawn
 	}
 	items := v.Items
-	if u.filer {
-		if items, err = filerItems(v, p); err != nil {
+	if u.o.Items != nil {
+		if items, err = u.o.Items(v); err != nil {
 			return err
 		}
+	}
+	var vars map[string]any
+	if u.o.Vars != nil {
+		vars = u.o.Vars(v)
+	}
+	if vars == nil {
+		// Not null: Vim loops over it.
+		vars = map[string]any{}
 	}
 	n := min(len(items), max(p.MaxDisplayItems, 0))
 	r := render{
 		Version:    v.Version,
 		Name:       v.Context.Name,
-		UI:         u.name,
+		UI:         u.o.Name,
 		Levels:     make([]int, n),
-		Path:       rootPath(v),
+		Vars:       vars,
 		Open:       v.Open || !s.shown,
 		Lines:      make([]string, n),
 		IDs:        make([]uint64, n),
@@ -487,12 +491,12 @@ func (u *UI) Actions() map[string]fi.UIAction {
 		"toggleSelectItem":    toggleSelectItem,
 		"toggleAllItems":      toggleAllItems,
 		"clearSelectAllItems": clearSelectAllItems,
-		"preview":             preview,
+		"preview":             u.preview,
 		"quit":                quit,
 		"redraw":              redraw,
 		"expandItem":          expandItem,
 		"collapseItem":        collapseItem,
-		"togglePreview":       togglePreview,
+		"togglePreview":       u.togglePreview,
 		"updateOptions":       updateOptions,
 		"checkItems":          checkItems,
 		"chooseAction":        chooseAction,
@@ -501,14 +505,14 @@ func (u *UI) Actions() map[string]fi.UIAction {
 }
 
 // togglePreview is preview with params.toggle.
-func togglePreview(ctx context.Context, h sdk.Host, a fi.UIActionArgs) (fi.ActionFlags, error) {
+func (u *UI) togglePreview(ctx context.Context, h sdk.Host, a fi.UIActionArgs) (fi.ActionFlags, error) {
 	p := fi.Params{}
 	for k, v := range a.ActionParams {
 		p[k] = v
 	}
 	p["toggle"] = true
 	a.ActionParams = p
-	return preview(ctx, h, a)
+	return u.preview(ctx, h, a)
 }
 
 // updateOptions merges params into the options of the session (as
@@ -668,7 +672,7 @@ func redraw(_ context.Context, _ sdk.Host, a fi.UIActionArgs) (fi.ActionFlags, e
 
 // preview shows the preview of the item under the cursor in the preview
 // window, or closes it ({toggle: true} when it shows that item).
-func preview(ctx context.Context, h sdk.Host, a fi.UIActionArgs) (fi.ActionFlags, error) {
+func (u *UI) preview(ctx context.Context, h sdk.Host, a fi.UIActionArgs) (fi.ActionFlags, error) {
 	// The other params are the kind's (previewCmds, ...).
 	var p struct {
 		Toggle bool `json:"toggle"`
@@ -681,8 +685,7 @@ func preview(ctx context.Context, h sdk.Host, a fi.UIActionArgs) (fi.ActionFlags
 		_, err := h.Call(ctx, "goda_fi#ui#ff#_close_preview", name)
 		return fi.None, err
 	}
-	// The defaults of ff: the preview is the same in the filer.
-	up, err := (&UI{}).params(a.View)
+	up, err := u.params(a.View)
 	if err != nil {
 		return fi.None, err
 	}
@@ -699,11 +702,4 @@ func preview(ctx context.Context, h sdk.Host, a fi.UIActionArgs) (fi.ActionFlags
 		"maxSize": up.PreviewMaxSize,
 	}))
 	return fi.None, err
-}
-
-func rootPath(v *fi.View) string {
-	if len(v.Roots) == 0 {
-		return ""
-	}
-	return v.Roots[0].Word
 }

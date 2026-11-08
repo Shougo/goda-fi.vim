@@ -1,4 +1,4 @@
-package ff
+package filer
 
 import (
 	"strings"
@@ -48,5 +48,19 @@ func TestSortTree(t *testing.T) {
 	got = sortTree(items, level, sortFunc("FILENAME"), false)
 	if words(got) != "z z b a y w c x" {
 		t.Errorf("reversed: %s", words(got))
+	}
+}
+
+func TestDecode(t *testing.T) {
+	// The params of ff and those of the filer, in one.
+	p, err := Decode(map[string]any{"split": "vertical", "sort": "natural"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Split != "vertical" || p.Sort != "natural" || !p.DisplayRoot || p.SplitDirection != "aboveleft" {
+		t.Errorf("got %+v", p)
+	}
+	if _, err := Decode(map[string]any{"nope": 1}); err == nil {
+		t.Error("an unknown param is accepted")
 	}
 }

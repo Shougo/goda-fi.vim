@@ -518,9 +518,9 @@ UI FILER                                                    *goda-fi-ui-filer*
 
 ui/filer, as ddu-ui-filer: the items of trees in a buffer
 ("goda-fi-filer-{name}", filetype "goda-fi-filer"), the path of each
-source on the line before its items. It is the UI ff with other defaults:
+source on the line before its items. It is a UI made of ff (ff.NewUI):
 its params and actions are those of ff (|goda-fi-ui-ff-params|,
-|goda-fi-ui-ff-actions|), and these.
+|goda-fi-ui-ff-actions|) with other defaults, and these.
 
 PARAMS                                               *goda-fi-ui-filer-params*
 
@@ -866,7 +866,7 @@ DIFFERENCES FROM DDU.VIM                                         *goda-fi-ddu*
   (|goda-fi-actions|).
 - Trees are kept by the engine: an expanded tree is gathered again with
   its parent, and the filters apply to its items.
-- The filer is the UI ff with other defaults (|goda-fi-ui-filer|);
+- The filer is a UI made of ff, with other defaults (|goda-fi-ui-filer|);
   sortCustom is not there.
 - The source and the kind "action" (chooseAction) are in every
   configuration.

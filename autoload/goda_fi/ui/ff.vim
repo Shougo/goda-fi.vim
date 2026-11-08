@@ -1,6 +1,6 @@
 " The ff UI: a buffer of items in a split window (ui/ff/ff.go makes what it
-" shows). The filer (ui/filer) is this UI too, with a buffer of its own:
-" every redraw says which ("ff" or "filer").
+" shows). The UIs made of it (ff.NewUI) are this UI too, with a buffer of
+" their own: every redraw says which (its "ui").
 "
 " Every redraw comes as one call, goda_fi#ui#ff#_redraw(), with a version:
 " one older than what is shown is dropped, and once the window is closed only
@@ -103,11 +103,15 @@ function! s:redraw(name, r) abort
   let st.ids = a:r.ids
   let st.levels = get(a:r, 'levels', [])
   let st.input = a:r.input
-  if st.ui ==# 'filer' && get(a:r, 'path', '') !=# ''
-    " As ddu-ui-filer's b:ddu_ui_filer_path and t:ddu_ui_filer_path.
-    call setbufvar(bufnr, 'goda_fi_ui_filer_path', a:r.path)
+  let vars = get(a:r, 'vars', {})
+  if !empty(vars)
+    " The variables of the UI (ff.Options.Vars), in the buffer and its tab
+    " page.
     let tab = winid > 0 ? win_id2tabwin(winid)[0] : tabpagenr()
-    call settabvar(tab, 'goda_fi_ui_filer_path', a:r.path)
+    for [name, val] in items(vars)
+      call setbufvar(bufnr, name, val)
+      call settabvar(tab, name, val)
+    endfor
   endif
   call setbufvar(bufnr, 'goda_fi_version', a:r.version)
   call s:highlight(bufnr, a:r)
@@ -231,7 +235,7 @@ function! s:open_window(name, bufnr, p) abort
   setlocal nofoldenable foldcolumn=0 signcolumn=no cursorline
   let ft = 'goda-fi-' . st.ui
   if &filetype !=# ft
-    " Your mappings: autocmd FileType goda-fi-ff (goda-fi-filer)
+    " Your mappings: autocmd FileType goda-fi-ff (goda-fi-{ui})
     execute 'setlocal filetype=' . ft
   endif
   return win_getid()

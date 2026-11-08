@@ -1,4 +1,4 @@
-" The filer UI (ui/filer): the ff UI with a buffer of its own
+" The filer UI (ui/filer): a UI of ff (ff.NewUI) with a buffer of its own
 " (autoload/goda_fi/ui/ff.vim does it all).
 
 function! goda_fi#ui#filer#_pos(name) abort
