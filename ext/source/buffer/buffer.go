@@ -4,13 +4,22 @@ package buffer
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"path/filepath"
 
+	"github.com/Shougo/goda-fi.vim/ext/internal/vimscript"
 	"github.com/Shougo/goda-fi.vim/ext/kind/file"
 	"github.com/Shougo/goda-fi.vim/fi"
 	"github.com/Shougo/goda.vim/sdk"
 )
+
+// The Vim side of the source (buffer.vim): goda_fi#source#buffer#*().
+//
+//go:embed buffer.vim
+var vimSrc []byte
+
+var script = vimscript.New("autoload/goda_fi/source/buffer.vim", vimSrc)
 
 type source struct{}
 
@@ -29,7 +38,7 @@ type buf struct {
 }
 
 func (source) Gather(ctx context.Context, h sdk.Host, a fi.GatherArgs, emit func([]fi.Item) error) error {
-	raw, err := h.Call(ctx, "goda_fi#source#buffer#_list", a.Context.WinID, a.Context.BufNr)
+	raw, err := script.Call(ctx, h, "goda_fi#source#buffer#_list", a.Context.WinID, a.Context.BufNr)
 	if err != nil {
 		return err
 	}

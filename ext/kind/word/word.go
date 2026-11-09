@@ -4,12 +4,21 @@ package word
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"strings"
 
+	"github.com/Shougo/goda-fi.vim/ext/internal/vimscript"
 	"github.com/Shougo/goda-fi.vim/fi"
 	"github.com/Shougo/goda.vim/sdk"
 )
+
+// The Vim side of the kind (word.vim): goda_fi#kind#word#*().
+//
+//go:embed word.vim
+var vimSrc []byte
+
+var script = vimscript.New("autoload/goda_fi/kind/word.vim", vimSrc)
 
 // ActionData is the action of an item of this kind, as ddu-kind-word's.
 type ActionData struct {
@@ -54,7 +63,7 @@ func vimAction(desc, fn string, flags fi.ActionFlags) fi.Action {
 			if err != nil {
 				return fi.ActionResult{}, err
 			}
-			_, err = h.Call(ctx, "goda_fi#kind#word#"+fn, ts, a.Context.Mode)
+			_, err = script.Call(ctx, h, "goda_fi#kind#word#"+fn, ts, a.Context.Mode)
 			return fi.ActionResult{Flags: flags}, err
 		},
 	}

@@ -8,7 +8,7 @@
 " The version of this Vim script that the binary goes with (ScriptVersion of
 " its Go side): goda.vim refuses a binary of another one, and says to build
 " it again. Bumped with it when they no longer work together.
-let s:version = #{version: 1, module: 'github.com/Shougo/goda-fi.vim'}
+let s:version = #{version: 2, module: 'github.com/Shougo/goda-fi.vim'}
 
 " Patches of the options made at run time, as ddu#custom#patch_*(). They live
 " here, not in the binary: they survive a restart of it, and they can be made

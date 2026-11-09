@@ -5,13 +5,22 @@ package fileold
 
 import (
 	"context"
+	_ "embed"
 	"path/filepath"
 	"strings"
 
+	"github.com/Shougo/goda-fi.vim/ext/internal/vimscript"
 	"github.com/Shougo/goda-fi.vim/ext/kind/file"
 	"github.com/Shougo/goda-fi.vim/fi"
 	"github.com/Shougo/goda.vim/sdk"
 )
+
+// The Vim side of the source (fileold.vim): goda_fi#source#fileold#*().
+//
+//go:embed fileold.vim
+var vimSrc []byte
+
+var script = vimscript.New("autoload/goda_fi/source/fileold.vim", vimSrc)
 
 type source struct{}
 
@@ -22,7 +31,7 @@ func (source) Name() string { return "fileold" }
 func (source) Kind() string { return "file" }
 
 func (source) Gather(ctx context.Context, h sdk.Host, a fi.GatherArgs, emit func([]fi.Item) error) error {
-	raw, err := h.Call(ctx, "goda_fi#source#fileold#_list")
+	raw, err := script.Call(ctx, h, "goda_fi#source#fileold#_list")
 	if err != nil {
 		return err
 	}

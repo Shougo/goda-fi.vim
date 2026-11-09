@@ -4,7 +4,7 @@ package file
 // clipboard (copy, move, link, then paste), rename, delete, trash, new
 // files and directories, and undo. The files are changed here; Vim asks
 // (input(), confirm()) and keeps its buffers in step
-// (autoload/goda_fi/kind/file.vim).
+// (file.vim).
 
 import (
 	"context"
@@ -97,7 +97,7 @@ func (k Kind) fileActions() map[string]fi.Action {
 			Run: s.delete},
 		"trash": {Description: "Move the files and directories to the trash (kindParams trashCommand).",
 			Run: s.trash},
-		"rename": {Description: "Rename the item; several in a buffer (write it to rename).",
+		"rename": {Description: "Rename the items: a new name asked for each.",
 			Run: s.rename},
 		"edit": {Description: "The same as rename.",
 			Run: s.rename},
@@ -151,7 +151,7 @@ func isDir(path string) bool {
 
 func call[T any](ctx context.Context, h sdk.Host, fn string, args ...any) (T, error) {
 	var out T
-	r, err := h.Call(ctx, "goda_fi#kind#file#"+fn, args...)
+	r, err := script.Call(ctx, h, "goda_fi#kind#file#"+fn, args...)
 	if err != nil {
 		return out, err
 	}
@@ -160,7 +160,7 @@ func call[T any](ctx context.Context, h sdk.Host, fn string, args ...any) (T, er
 }
 
 func message(ctx context.Context, h sdk.Host, msg string) {
-	_, _ = h.Call(ctx, "goda_fi#kind#file#print", msg)
+	_, _ = script.Call(ctx, h, "goda_fi#kind#file#print", msg)
 }
 
 // confirm asks with confirm(): the choice (1-based), def when it fails.
@@ -288,7 +288,7 @@ func (s *state) pasteFiles(ctx context.Context, h sdk.Host, cwd string, clip cli
 			if err := safeAction("move", src, dest); err != nil {
 				return fi.ActionResult{}, err
 			}
-			_, _ = h.Call(ctx, "goda_fi#kind#file#buffer_rename", src, dest)
+			_, _ = script.Call(ctx, h, "goda_fi#kind#file#buffer_rename", src, dest)
 		default:
 			if err := safeAction("copy", src, dest); err != nil {
 				return fi.ActionResult{}, err
@@ -360,7 +360,7 @@ func (s *state) delete(ctx context.Context, h sdk.Host, a fi.ActionArgs) (fi.Act
 		if err := os.RemoveAll(path); err != nil {
 			return fi.ActionResult{}, err
 		}
-		_, _ = h.Call(ctx, "goda_fi#kind#file#buffer_delete", path)
+		_, _ = script.Call(ctx, h, "goda_fi#kind#file#buffer_delete", path)
 	}
 	s.record(nil)
 	return fi.ActionResult{Flags: fi.RefreshItems, SearchPath: search}, nil
@@ -387,24 +387,13 @@ func (s *state) trash(ctx context.Context, h sdk.Host, a fi.ActionArgs) (fi.Acti
 		if err != nil {
 			return fi.ActionResult{}, fmt.Errorf("%s: %v: %s", strings.Join(append(p.TrashCommand, path), " "), err, strings.TrimSpace(string(out)))
 		}
-		_, _ = h.Call(ctx, "goda_fi#kind#file#buffer_delete", path)
+		_, _ = script.Call(ctx, h, "goda_fi#kind#file#buffer_delete", path)
 	}
 	s.record(nil)
 	return fi.ActionResult{Flags: fi.RefreshItems}, nil
 }
 
 func (s *state) rename(ctx context.Context, h sdk.Host, a fi.ActionArgs) (fi.ActionResult, error) {
-	if len(a.Items) > 1 {
-		// A buffer of their names: written, the files are renamed.
-		paths := make([]string, len(a.Items))
-		for i, it := range a.Items {
-			paths[i] = pathOf(it)
-		}
-		_, err := h.Call(ctx, "goda_fi#kind#file#exrename#create_buffer", paths,
-			map[string]any{"cwd": a.SourcePath(), "name": a.Context.Name})
-		s.record(nil)
-		return fi.ActionResult{Flags: fi.Persist}, err
-	}
 	cwd := a.SourcePath()
 	var history []done
 	search := ""
@@ -432,7 +421,7 @@ func (s *state) rename(ctx context.Context, h sdk.Host, a fi.ActionArgs) (fi.Act
 		if err := safeAction("rename", path, dest); err != nil {
 			return fi.ActionResult{}, err
 		}
-		_, _ = h.Call(ctx, "goda_fi#kind#file#buffer_rename", path, dest)
+		_, _ = script.Call(ctx, h, "goda_fi#kind#file#buffer_rename", path, dest)
 		history = append(history, done{name: "rename", src: path, dest: dest})
 		search = dest
 	}
@@ -527,7 +516,7 @@ func (s *state) undo(ctx context.Context, h sdk.Host, a fi.ActionArgs) (fi.Actio
 			if err := move(d.dest, d.src); err != nil {
 				return fi.ActionResult{}, err
 			}
-			_, _ = h.Call(ctx, "goda_fi#kind#file#buffer_rename", d.dest, d.src)
+			_, _ = script.Call(ctx, h, "goda_fi#kind#file#buffer_rename", d.dest, d.src)
 			// Undone again, it is moved back.
 			redo = append(redo, done{name: d.name, src: d.dest, dest: d.src})
 			search = d.src

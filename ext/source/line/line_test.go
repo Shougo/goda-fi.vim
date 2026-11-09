@@ -25,6 +25,9 @@ func (h host) get(begin, end int) []any {
 	return out
 }
 
+// Cmd: the script of the source is sourced.
+func (host) Cmd(context.Context, string) error { return nil }
+
 func (h host) Call(_ context.Context, fn string, args ...any) (any, error) {
 	switch fn {
 	case "goda_fi#source#line#_lines":

@@ -2,13 +2,14 @@
 // files and buffers (ActionData), opened, yanked, put in the quickfix list...
 // and previewed.
 //
-// The work in Vim is done by autoload/goda_fi/kind/file.vim, one call per
-// action.
+// The work in Vim is done by file.vim (embedded: goda_fi#kind#file#*()), one
+// call per action.
 package file
 
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"fmt"
 	"io"
 	"maps"
@@ -16,9 +17,17 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Shougo/goda-fi.vim/ext/internal/vimscript"
 	"github.com/Shougo/goda-fi.vim/fi"
 	"github.com/Shougo/goda.vim/sdk"
 )
+
+// The Vim side of the kind (file.vim): goda_fi#kind#file#*().
+//
+//go:embed file.vim
+var vimSrc []byte
+
+var script = vimscript.New("autoload/goda_fi/kind/file.vim", vimSrc)
 
 // ActionData is the action of an item of this kind, as ddu-kind-file's.
 type ActionData struct {
@@ -81,7 +90,7 @@ func vimAction(desc, fn string, flags fi.ActionFlags) fi.Action {
 			if params == nil {
 				params = fi.Params{}
 			}
-			_, err = h.Call(ctx, "goda_fi#kind#file#"+fn, ts, params, a.Context)
+			_, err = script.Call(ctx, h, "goda_fi#kind#file#"+fn, ts, params, a.Context)
 			return fi.ActionResult{Flags: flags}, err
 		},
 	}
@@ -191,7 +200,7 @@ func open(ctx context.Context, h sdk.Host, a fi.ActionArgs) (fi.ActionResult, er
 		if t.BufNr == 0 && t.Path != "" {
 			if st, err := os.Stat(t.Path); err == nil {
 				if st.IsDir() {
-					_, _ = h.Call(ctx, "goda_fi#kind#file#print", t.Path+" is a directory.")
+					_, _ = script.Call(ctx, h, "goda_fi#kind#file#print", t.Path+" is a directory.")
 					continue
 				}
 				var ask string
@@ -201,7 +210,7 @@ func open(ctx context.Context, h sdk.Host, a fi.ActionArgs) (fi.ActionResult, er
 					ask = fmt.Sprintf("%q: %d bytes are too huge.  Open?", t.Path, st.Size())
 				}
 				if ask != "" {
-					yes, err := h.Call(ctx, "goda_fi#kind#file#confirm", ask)
+					yes, err := script.Call(ctx, h, "goda_fi#kind#file#confirm", ask)
 					if err != nil {
 						return fi.ActionResult{}, err
 					}
@@ -216,7 +225,7 @@ func open(ctx context.Context, h sdk.Host, a fi.ActionArgs) (fi.ActionResult, er
 	if len(open) == 0 {
 		return fi.ActionResult{}, nil
 	}
-	_, err = h.Call(ctx, "goda_fi#kind#file#open", open, fi.Params{"command": p.Command}, a.Context)
+	_, err = script.Call(ctx, h, "goda_fi#kind#file#open", open, fi.Params{"command": p.Command}, a.Context)
 	return fi.ActionResult{}, err
 }
 

@@ -4,12 +4,21 @@ package register
 
 import (
 	"context"
+	_ "embed"
 	"strings"
 
+	"github.com/Shougo/goda-fi.vim/ext/internal/vimscript"
 	"github.com/Shougo/goda-fi.vim/ext/kind/word"
 	"github.com/Shougo/goda-fi.vim/fi"
 	"github.com/Shougo/goda.vim/sdk"
 )
+
+// The Vim side of the source (register.vim): goda_fi#source#register#*().
+//
+//go:embed register.vim
+var vimSrc []byte
+
+var script = vimscript.New("autoload/goda_fi/source/register.vim", vimSrc)
 
 type source struct{}
 
@@ -26,7 +35,7 @@ type reg struct {
 }
 
 func (source) Gather(ctx context.Context, h sdk.Host, _ fi.GatherArgs, emit func([]fi.Item) error) error {
-	raw, err := h.Call(ctx, "goda_fi#source#register#_list")
+	raw, err := script.Call(ctx, h, "goda_fi#source#register#_list")
 	if err != nil {
 		return err
 	}

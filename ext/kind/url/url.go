@@ -5,6 +5,7 @@ package url
 import (
 	"bufio"
 	"context"
+	_ "embed"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,9 +14,17 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Shougo/goda-fi.vim/ext/internal/vimscript"
 	"github.com/Shougo/goda-fi.vim/fi"
 	"github.com/Shougo/goda.vim/sdk"
 )
+
+// The Vim side of the kind (url.vim): goda_fi#kind#url#*().
+//
+//go:embed url.vim
+var vimSrc []byte
+
+var script = vimscript.New("autoload/goda_fi/kind/url.vim", vimSrc)
 
 // ActionData is the action of an item of this kind, as ddu-kind-url's.
 type ActionData struct {
@@ -142,7 +151,7 @@ func open(ctx context.Context, h sdk.Host, a fi.ActionArgs, urls []string) (fi.A
 	if err := fi.Decode(a.ActionParams, &p); err != nil {
 		return fi.None, err
 	}
-	_, err := h.Call(ctx, "goda_fi#kind#url#open", urls, p.Command)
+	_, err := script.Call(ctx, h, "goda_fi#kind#url#open", urls, p.Command)
 	return fi.None, err
 }
 
@@ -155,7 +164,7 @@ func yank(ctx context.Context, h sdk.Host, a fi.ActionArgs, urls []string) (fi.A
 	if err := fi.Decode(a.ActionParams, &p); err != nil {
 		return fi.None, err
 	}
-	_, err := h.Call(ctx, "goda_fi#kind#url#yank", urls, p.Register)
+	_, err := script.Call(ctx, h, "goda_fi#kind#url#yank", urls, p.Register)
 	return fi.Persist, err
 }
 
@@ -181,7 +190,7 @@ func fetch(ctx context.Context, h sdk.Host, a fi.ActionArgs, urls []string) (fi.
 		if err != nil {
 			return fi.None, err
 		}
-		if _, err := h.Call(ctx, "goda_fi#kind#url#show", lines); err != nil {
+		if _, err := script.Call(ctx, h, "goda_fi#kind#url#show", lines); err != nil {
 			return fi.None, err
 		}
 	}

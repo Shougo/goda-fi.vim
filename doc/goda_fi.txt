@@ -707,8 +707,7 @@ file		ext/kind/file (ddu-kind-file). Actions: open (params:
 		  clipCopy, clipMove	the files of the register "+
 		  newFile	files (comma separated; "name/" is a
 				directory), newDirectory directories
-		  rename, edit	the item; several in a buffer of their
-				names: write it (:w) to rename them
+		  rename, edit	the items: a new name is asked for each
 		  delete	(asked)
 		  trash		(asked) with kindParams trashCommand
 				(["gio", "trash"])
@@ -850,6 +849,12 @@ Actions, UIs and filters run in the goroutine of their session, and may call
 Vim (host.Call): while they wait for it, the session answers what Vim asks
 it (an autocommand of a window an action closed, say), so what they see of
 the session may change across a call.
+
+The Vim script of the extensions of goda-fi.vim is embedded in their Go
+packages (go:embed): it is written in the cache directory, at the path of an
+autoload script, and sourced before the first call of its functions
+(ext/internal/vimscript). They need nothing in 'runtimepath', and their Vim
+script is that of the binary. g:goda_fi_ext_scripts has where they are.
 
 Params arrive as fi.Params; decode them over your defaults with fi.Decode,
 which rejects unknown keys. By the time a source gathers, the current window

@@ -141,11 +141,6 @@ function! s:run() abort
   " filerec: gathered, in a window of its own, focused.
   call s:start({'name': 'rec', 'sources': ['filerec']})
   call s:check('filerec', s:wait_lines('rec', s:all), s:all)
-  " The registers: without the special keys of a macro, with the UTF-8
-  " characters that have the byte 0x80 ("、" is E3 80 81).
-  call setreg('q', "a\<Left>b、一。")
-  call s:check('register', filter(goda_fi#source#register#_list(), {_, r -> r.name ==# 'q'})[0].contents,
-        \ ['ab、一。'])
   call s:check('focus', bufnr('%'), s:buf('rec'))
   call s:check('windows', winnr('$'), 2)
   call s:check('filetype', &filetype, 'goda-fi-ff')
@@ -269,7 +264,9 @@ function! s:run() abort
   " The file operations of the filer, in a directory of their own: input()
   " gets what is typed ahead, confirm() (not for typeahead in every
   " editor) the answers given.
-  runtime autoload/goda_fi/kind/file.vim
+  " (The Vim script of the kind, embedded, is sourced: its items were
+  " opened.)
+  call s:check('kind script', has_key(get(g:, 'goda_fi_ext_scripts', {}), 'autoload/goda_fi/kind/file.vim'), 1)
   let g:confirm_answers = []
   function! goda_fi#kind#file#confirm(msg, ...) abort
     let n = empty(g:confirm_answers) ? 0 : remove(g:confirm_answers, 0)
@@ -306,20 +303,17 @@ function! s:run() abort
   call goda_fi#ui#do_action('itemAction', {'name': 'undo'})
   call s:wait('undo', {-> s:flines('ops')[1:] ==# ['newdir/', 'sub/', 'a.txt']})
   call s:check('undo', s:flines('ops')[1:], ['newdir/', 'sub/', 'a.txt'])
-  " Several renamed in a buffer of their names.
+  " Several renamed: a name asked for each (in the order they were
+  " selected).
   call cursor(4, 1)
   call goda_fi#ui#do_action('toggleSelectItem')
   call cursor(3, 1)
   call goda_fi#ui#do_action('toggleSelectItem')
+  call feedkeys("\<C-u>" . ops . "/b.txt\<CR>\<C-u>" . ops . "/sub2\<CR>", 't')
   call goda_fi#ui#do_action('itemAction', {'name': 'rename'})
-  let exbuf = get(filter(getbufinfo(), 'v:val.name =~# "exrename"'), 0, {'bufnr': -1}).bufnr
-  call s:check('exrename', getbufline(exbuf, 1, '$'), ['a.txt', 'sub/'])
-  call win_execute(bufwinid(exbuf), "call setline(1, ['b.txt', 'sub2/']) | write")
-  call s:check('exrename done', [isdirectory(ops . '/sub2'), filereadable(ops . '/b.txt'),
+  call s:wait('renamed', {-> s:flines('ops')[1:] ==# ['newdir/', 'sub2/', 'b.txt']})
+  call s:check('renamed', [isdirectory(ops . '/sub2'), filereadable(ops . '/b.txt'),
         \ filereadable(ops . '/sub2/renamed.txt')], [1, 1, 1])
-  call win_execute(bufwinid(exbuf), 'normal q')
-  call s:wait('exrename refresh', {-> s:flines('ops')[1:] ==# ['newdir/', 'sub2/', 'b.txt']})
-  call s:check('exrename refresh', s:flines('ops')[1:], ['newdir/', 'sub2/', 'b.txt'])
   call win_gotoid(bufwinid(bufnr('goda-fi-filer-ops')))
   call cursor(2, 1)
   let g:confirm_answers = [1]
@@ -329,7 +323,7 @@ function! s:run() abort
   call s:check('confirm answers', g:confirm_answers, [])
   call goda_fi#ui#do_action('quit')
   call delete(ops, 'rf')
-  runtime autoload/goda_fi/kind/file.vim
+  execute 'source' fnameescape(g:goda_fi_ext_scripts['autoload/goda_fi/kind/file.vim'])
 
   " The filer of a configuration of ddu-ui-filer: limitPath, the path
   " variables, updateOptions, checkItems, isGrouped, chooseAction,
@@ -534,6 +528,11 @@ function! s:run() abort
   execute index(s:lines('reg'), 'a: hello') + 1
   call goda_fi#ui#do_action('itemAction')
   call s:check('register append', getline(1), 'hello')
+  " The registers: without the special keys of a macro, with the UTF-8
+  " characters that have the byte 0x80 ("、" is E3 80 81).
+  call setreg('q', "a\<Left>b、一。")
+  call s:check('register', filter(goda_fi#source#register#_list(), {_, r -> r.name ==# 'q'})[0].contents,
+        \ ['ab、一。'])
   normal! 0
   " uiOptions.defaultAction goes before that of the kind.
   call s:start({'name': 'reg', 'sources': ['register'], 'input': 'hello',

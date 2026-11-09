@@ -7,17 +7,26 @@ package filepoint
 
 import (
 	"context"
+	_ "embed"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/Shougo/goda-fi.vim/ext/internal/vimscript"
 	"github.com/Shougo/goda-fi.vim/ext/kind/file"
 	"github.com/Shougo/goda-fi.vim/ext/kind/url"
 	"github.com/Shougo/goda-fi.vim/fi"
 	"github.com/Shougo/goda.vim/sdk"
 )
+
+// The Vim side of the source (filepoint.vim): goda_fi#source#filepoint#*().
+//
+//go:embed filepoint.vim
+var vimSrc []byte
+
+var script = vimscript.New("autoload/goda_fi/source/filepoint.vim", vimSrc)
 
 type source struct{}
 
@@ -63,7 +72,7 @@ type check struct {
 }
 
 func (source) Gather(ctx context.Context, h sdk.Host, a fi.GatherArgs, emit func([]fi.Item) error) error {
-	raw, err := h.Call(ctx, "goda_fi#source#filepoint#_point", a.Context.WinID)
+	raw, err := script.Call(ctx, h, "goda_fi#source#filepoint#_point", a.Context.WinID)
 	if err != nil {
 		return err
 	}
@@ -78,7 +87,7 @@ func (source) Gather(ctx context.Context, h sdk.Host, a fi.GatherArgs, emit func
 		if exists(path) || exists(abs(path, pt.Cwd)) {
 			return path
 		}
-		r, err := h.Call(ctx, "goda_fi#source#filepoint#_find", a.Context.WinID, strings.TrimPrefix(path, "./"))
+		r, err := script.Call(ctx, h, "goda_fi#source#filepoint#_find", a.Context.WinID, strings.TrimPrefix(path, "./"))
 		s, _ := r.(string)
 		if err != nil {
 			return ""

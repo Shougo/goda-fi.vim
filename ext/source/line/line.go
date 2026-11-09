@@ -4,12 +4,21 @@ package line
 
 import (
 	"context"
+	_ "embed"
 	"strconv"
 
+	"github.com/Shougo/goda-fi.vim/ext/internal/vimscript"
 	"github.com/Shougo/goda-fi.vim/ext/kind/file"
 	"github.com/Shougo/goda-fi.vim/fi"
 	"github.com/Shougo/goda.vim/sdk"
 )
+
+// The Vim side of the source (line.vim): goda_fi#source#line#*().
+//
+//go:embed line.vim
+var vimSrc []byte
+
+var script = vimscript.New("autoload/goda_fi/source/line.vim", vimSrc)
 
 // Params are the source params, as ddu-source-line's.
 type Params struct {
@@ -64,7 +73,7 @@ func (s source) Gather(ctx context.Context, h sdk.Host, a fi.GatherArgs, emit fu
 	if bufNr <= 0 {
 		bufNr = a.Context.BufNr
 	}
-	raw, err := h.Call(ctx, "goda_fi#source#line#_lines", winID, bufNr, p.Range == "window", chunkSize)
+	raw, err := script.Call(ctx, h, "goda_fi#source#line#_lines", winID, bufNr, p.Range == "window", chunkSize)
 	if err != nil {
 		return err
 	}
@@ -105,7 +114,7 @@ func (s source) Gather(ctx context.Context, h sdk.Host, a fi.GatherArgs, emit fu
 	get := func(begin, end int) error {
 		for from := begin; from <= end; from += chunkSize {
 			to := min(end, from+chunkSize-1)
-			raw, err := h.Call(ctx, "goda_fi#source#line#_get", l.BufNr, from, to)
+			raw, err := script.Call(ctx, h, "goda_fi#source#line#_get", l.BufNr, from, to)
 			if err != nil {
 				return err
 			}
