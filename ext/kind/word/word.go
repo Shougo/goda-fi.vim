@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Shougo/goda-fi.vim/ext/internal/vimscript"
 	"github.com/Shougo/goda-fi.vim/fi"
 	"github.com/Shougo/goda.vim/sdk"
+	"github.com/Shougo/goda.vim/sdk/vimscript"
 )
 
 // The Vim side of the kind (word.vim): goda_fi#kind#word#*().

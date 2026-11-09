@@ -266,7 +266,7 @@ function! s:run() abort
   " editor) the answers given.
   " (The Vim script of the kind, embedded, is sourced: its items were
   " opened.)
-  call s:check('kind script', has_key(get(g:, 'goda_fi_ext_scripts', {}), 'autoload/goda_fi/kind/file.vim'), 1)
+  call s:check('kind script', has_key(get(g:, 'goda#vimscripts', {}), 'autoload/goda_fi/kind/file.vim'), 1)
   let g:confirm_answers = []
   function! goda_fi#kind#file#confirm(msg, ...) abort
     let n = empty(g:confirm_answers) ? 0 : remove(g:confirm_answers, 0)
@@ -323,7 +323,7 @@ function! s:run() abort
   call s:check('confirm answers', g:confirm_answers, [])
   call goda_fi#ui#do_action('quit')
   call delete(ops, 'rf')
-  execute 'source' fnameescape(g:goda_fi_ext_scripts['autoload/goda_fi/kind/file.vim'])
+  execute 'source' fnameescape(g:goda#vimscripts['autoload/goda_fi/kind/file.vim'])
 
   " The filer of a configuration of ddu-ui-filer: limitPath, the path
   " variables, updateOptions, checkItems, isGrouped, chooseAction,

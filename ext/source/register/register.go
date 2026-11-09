@@ -7,10 +7,10 @@ import (
 	_ "embed"
 	"strings"
 
-	"github.com/Shougo/goda-fi.vim/ext/internal/vimscript"
 	"github.com/Shougo/goda-fi.vim/ext/kind/word"
 	"github.com/Shougo/goda-fi.vim/fi"
 	"github.com/Shougo/goda.vim/sdk"
+	"github.com/Shougo/goda.vim/sdk/vimscript"
 )
 
 // The Vim side of the source (register.vim): goda_fi#source#register#*().
