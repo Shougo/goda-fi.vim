@@ -24,9 +24,9 @@ import (
 	"github.com/Shougo/goda-fi-ext/ext/source/pathhistory"
 	"github.com/Shougo/goda-fi-ext/ext/source/register"
 	"github.com/Shougo/goda-fi-ext/ext/source/rg"
-	"github.com/Shougo/goda-fi.vim/fi"
 	"github.com/Shougo/goda-fi-ui-ff.vim/ui/ff"
 	"github.com/Shougo/goda-fi-ui-filer.vim/ui/filer"
+	"github.com/Shougo/goda-fi.vim/fi"
 )
 
 func main() {

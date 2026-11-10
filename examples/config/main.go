@@ -18,8 +18,8 @@ import (
 	"github.com/Shougo/goda-fi-ext/ext/source/fileexternal"
 	"github.com/Shougo/goda-fi-ext/ext/source/filepoint"
 	"github.com/Shougo/goda-fi-ext/ext/source/filerec"
-	"github.com/Shougo/goda-fi.vim/fi"
 	"github.com/Shougo/goda-fi-ui-ff.vim/ui/ff"
+	"github.com/Shougo/goda-fi.vim/fi"
 )
 
 func main() {
