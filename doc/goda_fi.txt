@@ -10,12 +10,7 @@ Usage			|goda-fi-usage|
 Functions		|goda-fi-functions|
 Variables		|goda-fi-variables|
 Options			|goda-fi-options|
-UI ff			|goda-fi-ui-ff|
-UI filer		|goda-fi-ui-filer|
-Sources			|goda-fi-sources|
-Filters			|goda-fi-filters|
-Kinds			|goda-fi-kinds|
-Columns			|goda-fi-columns|
+UIs and extensions	|goda-fi-uis|
 Aliases			|goda-fi-aliases|
 Events			|goda-fi-events|
 Extensions		|goda-fi-extensions|
@@ -42,15 +37,19 @@ INSTALL                                                      *goda-fi-install*
 Requirements: Go 1.26 or later; Vim 9.1 or later (|+job| |+channel|) or
 Neovim 0.11 or later; goda.vim.
 
-Install `Shougo/goda.vim` and `Shougo/goda-fi.vim` with your plugin manager,
-then make your configuration, a Go module of your own (keep it in your
-dotfiles):
+Install `Shougo/goda.vim`, `Shougo/goda-fi.vim` and the UIs you use
+(`Shougo/goda-fi-ui-ff.vim`, `Shougo/goda-fi-ui-filer.vim`: |goda-fi-uis|)
+with your plugin manager, then make your configuration, a Go module of your
+own (keep it in your dotfiles), with the UIs and the extensions
+(goda-fi-ext):
 >sh
 	mkdir -p ~/.vim/goda-fi && cd ~/.vim/goda-fi
 	# Neovim: ~/.config/nvim/goda-fi
 	cp /path/to/goda-fi.vim/examples/config/main.go .
 	go mod init goda-fi-config
 	go get github.com/Shougo/goda-fi.vim@latest
+	go get github.com/Shougo/goda-fi-ui-ff.vim@latest
+	go get github.com/Shougo/goda-fi-ext@latest
 	go mod tidy
 <
 Build it (again after every change of the configuration, and after
@@ -76,8 +75,8 @@ Start a session:
 	call goda_fi#start({'sources': ['filerec']})
 	call goda_fi#start({'name': 'files', 'resume': v:true})
 <
-The UI ff shows the items in a buffer of filetype "goda-fi-ff". Map its
-actions there, as with ddu-ui-ff:
+The UI ff (|goda-fi-ui-ff|) shows the items in a buffer of filetype
+"goda-fi-ff". Map its actions there, as with ddu-ui-ff:
 >vim
 	autocmd FileType goda-fi-ff call s:ff()
 	function! s:ff() abort
@@ -295,7 +294,7 @@ sources		The sources: names, or {name, options, params}.
 sourceOptions	By source name, "_" for all: matchers, sorters, converters,
 		defaultAction, ignoreCase, smartCase, matcherKey ("word" or
 		"display"), maxItems (10000), path, preview, volatile,
-		columns (what the items show, |goda-fi-columns|),
+		columns (what the items show; the column filename of goda-fi-ext),
 		limitPath (actions keep path there or under it).
 
 sourceParams	By source name: the params of the sources.
@@ -353,401 +352,29 @@ expandInput	Expand the input with |expand()| ("~/", "$VAR", "%:h"),
 An unknown option, source, filter or UI is an error.
 
 ==============================================================================
-UI FF                                                          *goda-fi-ui-ff*
-
-ui/ff, as ddu-ui-ff: the items in a buffer ("goda-fi-ff-{name}", filetype
-"goda-fi-ff") of a split window, filtered from the command line.
-
-PARAMS                                                  *goda-fi-ui-ff-params*
-
-Sizes and places are numbers or expressions of Vim, where uiParams are the
-params ("(&columns - eval(uiParams.winWidth)) / 2").
-
-split			"horizontal" (default), "vertical", "floating"
-			(Neovim; Vim splits horizontally, as ddu-ui-ff),
-			"tab" or "no".
-
-splitDirection		"botright" (default), "topleft", "belowright",
-			"aboveleft".
-
-winHeight		20.
-
-winWidth		"&columns / 2".
-
-winRow			"&lines / 2 - 10": of a floating window.
-
-winCol			"(&columns - eval(uiParams.winWidth)) / 2".
-
-floatingBorder		"none": the border of the floating windows, as
-			|nvim_open_win()|'s.
-
-floatingTitle		"".
-
-floatingTitlePos	"left".
-
-floatingBlend		0: their 'winblend'.
-
-autoResize		The window is no higher than its items (horizontal,
-			floating), or no wider (vertical).
-
-maxDisplayItems		1000: the lines of the buffer.
-
-maxHighlightItems	100: the items whose highlights are drawn.
-
-displaySourceName	"no", "short" or "long": the name of the source
-			before the items. "short" leaves out what the name
-			shares with the other sources at its start (file,
-			fileold and filerec are [f], [fold] and [frec]), or
-			keeps it and one letter more when that is shorter
-			(rg and register are [rg] and [re]); a name that
-			shares nothing is its first letter.
-
-displayTree		The items of trees indented by their level, after
-			"+ " (collapsed), "- " (expanded) or "  ".
-
-reversed		The first item at the bottom.
-
-ignoreEmpty		No window without items.
-
-cursorPos		The line of the cursor when it opens.
-
-highlights		Groups: "selected" (Statement), "floating"
-			(NormalFloat), "floatingBorder" (FloatBorder),
-			"floatingCursorLine" (CursorLine).
-
-overwriteStatusline	v:true: the name, the counts, the input.
-
-autoAction		{name, params, delay (100)}: the UI action run when
-			the cursor is on another item ({"name": "preview"}),
-			once enabled by startAutoAction or toggleAutoAction.
-
-startAutoAction		Enable autoAction when the window opens.
-
-previewSplit		"horizontal" (default), "vertical" or "no".
-
-previewHeight		10.
-
-previewWidth		80.
-
-previewMaxSize		1000000: larger files are not previewed.
-
-previewFloating		The preview in a floating window (Neovim) or a popup
-			(Vim), beside the window of the items.
-
-previewFloatingBorder	"none".
-
-previewFloatingTitle	"".
-
-previewFloatingTitlePos	"left".
-
-previewFloatingZindex	100.
-
-previewRow		0: where the floating preview goes, when not 0.
-
-previewCol		0.
-
-onPreview		"": a Vim function called after a preview with
-			{previewWinId, lineNr} (ddu-ui-ff's onPreview, as the
-			name of a function):
->vim
-			function! MyOnPreview(args) abort
-			  call win_execute(a:args.previewWinId, 'normal! zt')
-			endfunction
-<
-Params a configuration of ddu-ui-ff has that are not here are errors
-(filterSplitDirection, updateTime...): leave them out.
-
-ACTIONS                                                *goda-fi-ui-ff-actions*
-
-itemAction		Runs params.name (the default action when unset) with
-			params.params on the items selected, or under the
-			cursor.
-
-toggleSelectItem	Selects the item under the cursor, or not.
-
-toggleAllItems		Selects all, or none.
-
-clearSelectAllItems	Selects none.
-
-cursorNext		Moves the cursor down params.count (1) lines;
-			params.loop goes around.
-
-cursorPrevious		The same, up.
-
-openFilterWindow	Types the filter in the command line; params.prompt.
-
-toggleAutoAction	Enables autoAction, or disables it (and closes the
-			preview).
-
-preview			Shows the item under the cursor in the preview
-			window (params.toggle: closes it when it shows that
-			item).
-
-redraw			Gathers again; {method: "uiRedraw"} draws again.
-
-expandItem		Expands the tree under the cursor (a directory of
-			the source file): its items go under it. Params:
-			mode ("toggle": collapses it when it is expanded),
-			maxLevel (the levels under it expanded too, but the
-			hidden ones; -1: all), isInTree (the cursor goes to
-			its first item), isGrouped (a tree that is the only
-			item of its parent goes in its line, "a/b/c/").
-
-collapseItem		Collapses the tree under the cursor, or the one it
-			is in; the cursor goes to it.
-
-togglePreview		preview with params.toggle (the params of the kind,
-			imageExts say, go on).
-
-updateOptions		Merges params into the options of the session (as
-			ddu.vim's); the action redraw gathers or draws with
-			them. With uiParams split: the window opens again.
-
-checkItems		Gathers again when the files changed (the directories
-			of the source file and of the trees expanded), the
-			items shown until the new ones come.
-
-chooseAction		A session of the item actions of the items, pushed
-			on this one (in ff): the one chosen runs on them,
-			back in this session.
-
-inputAction		Asks for the name of an item action (input(), with
-			completion) and runs it.
-
-quit			Closes the window.
-
-==============================================================================
-UI FILER                                                    *goda-fi-ui-filer*
-
-ui/filer, as ddu-ui-filer: the items of trees in a buffer
-("goda-fi-filer-{name}", filetype "goda-fi-filer"), the path of each
-source on the line before its items. It is a UI made of ff (ff.NewUI):
-its params and actions are those of ff (|goda-fi-ui-ff-params|,
-|goda-fi-ui-ff-actions|) with other defaults, and these.
-
-PARAMS                                               *goda-fi-ui-filer-params*
-
-splitDirection		"aboveleft".
-
-displayRoot		v:true: a line of the path of each source,
-			"{source}:{path}" ("~" for the home directory), before
-			its items. It is the root item of the source
-			(__level -1): actions work on it (narrow).
-			highlights "sourceName" (Type), "sourcePath" (String).
-
-sort			"filename", "natural" (numbers by their value),
-			"extension", "size", "time" or "none" (default);
-			upper case reverses it. The items of a tree are
-			sorted among them.
-
-sortTreesFirst		The trees (directories) before the other items.
-
-fileFilter		A regexp (Go's): the items that are not trees must
-			match it.
-
-The actions cursorTreeTop and cursorTreeBottom move the cursor to the first
-and the last item of the tree it is in (in ff too).
-
-The filer sets b:goda_fi_ui_filer_path (its buffer) and
-t:goda_fi_ui_filer_path (its tab page) to the path of its first source, as
-ddu-ui-filer's b:ddu_ui_filer_path and t:ddu_ui_filer_path:
->vim
-	nnoremap <Space>f <Cmd>call goda_fi#start(#{
-	      \   name: 'filer-' .. win_getid(), ui: 'filer', resume: v:true,
-	      \   sources: [#{ name: 'file', options: #{
-	      \     path: t:->get('goda_fi_ui_filer_path', getcwd()),
-	      \     limitPath: getcwd(),
-	      \     columns: ['filename'],
-	      \   } }],
-	      \ })<CR>
-	autocmd TabEnter,WinEnter,CursorHold,FocusGained *
-	      \ call goda_fi#ui#do_action('checkItems')
-<
-
-A configuration, with the column filename (|goda-fi-columns|):
->go
-	b.AddUI(filer.New())
-	b.AddColumn(filename.New(filename.DefaultParams()))
-	b.PatchLocal("filer", fi.Options{
-		UI:      "filer",
-		Sources: fi.Sources("file"),
-		SourceOptions: map[string]fi.SourceOptions{
-			"file": {Columns: []string{"filename"}},
-		},
-		UIParams: map[string]fi.Params{
-			"filer": {"sort": "filename", "sortTreesFirst": true},
-		},
-		// narrow keeps the window (as ddu-ui-filer's example).
-		ActionOptions: map[string]fi.ActionOptions{
-			"narrow": {Quit: new(false)},
-		},
-	})
-<
->vim
-	autocmd FileType goda-fi-filer call s:filer()
-	function! s:filer() abort
-	  nnoremap <buffer> <CR>
-	        \ <Cmd>call goda_fi#ui#do_action('itemAction',
-	        \ #{ name: goda_fi#ui#get_item()->get('isTree')
-	        \   ? 'narrow' : 'open' })<CR>
-	  nnoremap <buffer> <Tab>
-	        \ <Cmd>call goda_fi#ui#do_action(
-	        \   'expandItem', #{ mode: 'toggle' })<CR>
-	  nnoremap <buffer> ..
-	        \ <Cmd>call goda_fi#ui#do_action('itemAction',
-	        \ #{ name: 'narrow', params: #{ path: '..' } })<CR>
-	  nnoremap <buffer> q
-	        \ <Cmd>call goda_fi#ui#do_action('quit')<CR>
-	endfunction
-	call goda_fi#start(#{ name: 'filer' })
-<
-==============================================================================
-SOURCES                                                      *goda-fi-sources*
-
-ddu.vim's names lose their "_": "file_rec" is "filerec".
-
-file		ext/source/file (ddu-source-file): the files of a
-		directory; the directories are trees (expandItem). Params:
-		ignoreDirectories, new.
-
-filerec		ext/source/filerec (ddu-source-file_rec): the files under
-		a directory. Params: chunkSize (1000), ignoredDirectories
-		([".git"]), expandSymbolicLink.
-
-fileold		ext/source/fileold (ddu-source-file_old): v:oldfiles,
-		the viminfo or ShaDa read again first.
-
-buffer		ext/source/buffer (ddu-source-buffer): the listed buffers
-		of files, the alternate one first.
-
-filepoint	ext/source/filepoint (ddu-source-file_point): the file
-		under the cursor, at the line and column after it
-		("path:10:3", "path", line 10, a diff...). A URL there
-		(http://, https://) is an item of the kind url: add it too.
-
-fileexternal	ext/source/fileexternal (ddu-source-file_external): the
-		files a command lists. Params: cmd (["fd", "-t", "f"]),
-		updateItems.
-
-rg		ext/source/rg (ddu-source-rg): what ripgrep finds. Params:
-		input (the pattern; the input when the source is
-		volatile), args (["--column", "--no-heading", "--color",
-		"never"]; with "--json" its JSON is read), category (a
-		line of each file before its matches), cmd ("rg"), globs,
-		highlights ({path, lineNr, word}), maxEnqueSize (10000),
-		minVolatileInputLength (2), paths. inputType "migemo" is not
-		supported.
-
-pathhistory	ext/source/pathhistory (ddu-source-path_history): the
-		paths the session of the buffer it is started from left
-		(narrow), the last first.
-
-line		ext/source/line (ddu-source-line): the lines of the
-		buffer, from the cursor line. Params: bufNr,
-		ignoreEmptyInput, range ("buffer" or "window"), winId.
-
-register	ext/source/register (ddu-source-register): the registers
-		that are not empty, of the kind "word".
-
-The directory is sourceOptions.path, or the current one.
-
-==============================================================================
-FILTERS                                                      *goda-fi-filters*
-
-matchersubstring	ext/filter/matchersubstring
-			(ddu-filter-matcher_substring): every word of the
-			input; "!word" excludes, "<word" starts a word,
-			"^word" is a prefix, "word$" a suffix, "\ " a space.
-			Params: highlightMatched (""), limit (1000),
-			maxLength (500).
-
-matcherhidden		ext/filter/matcherhidden
-			(ddu-filter-matcher_hidden): no hidden files, unless
-			the input has a ".".
-
-matcherrelative		ext/filter/matcherrelative
-			(ddu-filter-matcher_relative): only the files under
-			the directory of the source.
-
-matcherfiles		ext/filter/matcherfiles (ddu-filter-matcher_files):
-			only the paths of params.globs or params.patterns.
-
-sorteralpha		ext/filter/sorteralpha (ddu-filter-sorter_alpha): by
-			word.
-
-sortermtime		ext/filter/sortermtime (ddu-filter-sorter_mtime): the
-			files changed last first.
-
-converterhldir		ext/filter/converterhldir
-			(ddu-filter-converter_hl_dir): the directories of
-			the path highlighted. Params: hlGroup ("Directory",
-			or a list used by turns).
-
-==============================================================================
-KINDS                                                          *goda-fi-kinds*
-
-file		ext/kind/file (ddu-kind-file). Actions: open (params:
-		command "edit", maxSize), append, insert, cd, execute
-		(params: command), feedkeys, loclist, quickfix, yank,
-		narrow (the directory of the item is the path of the
-		source; params: path, ".." for the parent; several
-		items: a session pushed with their directories).
-		Previews files and buffers.
-		The actions of the filer, done by the binary, asked in
-		Vim (input(), confirm()):
-		  copy, move, link (params: mode "absolute",
-		  "relative" or "hard")	the items to the clipboard
-		  paste		what the clipboard holds, in the
-				directory of the item (the tree under
-				the cursor when it is expanded); a file
-				there already: Force, Time (when newer),
-				Underbar ("name_"), No, Rename
-		  clipYank	the paths to the register "+, for
-				clipCopy and clipMove (another Vim)
-		  clipCopy, clipMove	the files of the register "+
-		  newFile	files (comma separated; "name/" is a
-				directory), newDirectory directories
-		  rename, edit	the items: a new name is asked for each
-		  delete	(asked)
-		  trash		(asked) with kindParams trashCommand
-				(["gio", "trash"])
-		  undo		takes back the last copy, move, link,
-				rename, newFile or newDirectory
-		  executeSystem	opens the file with the program of the
-				system (params: method, "" for the one of
-				the system, "nvim-open", or a command:
-				"xdg-open", "open", "wslview", ...)
-		The clipboard and undo are shared by the sessions; the
-		buffers of the files moved, renamed or deleted follow
-		them, and a modified one is not moved.
-
-word		ext/kind/word (ddu-kind-word). Actions: append, insert,
-		feedkeys, yank. Previews the text.
-
-url		ext/kind/url (ddu-kind-url). Actions: browse (with
-		kindParams externalOpener: "systemopen" (default: xdg-open,
-		open, the shell of MS-Windows), "openbrowser"
-		(open-browser.vim), "external" (vim-external), "uiopen"
-		(Neovim's vim.ui.open())), open (params: command "edit";
-		as buffers, for netrw and the like), yank (params:
-		register; one URL a line; the UI stays), fetch (params:
-		method "GET", headers, body, showStatus, showHeader: the
-		response in a buffer).
-
-==============================================================================
-COLUMNS                                                      *goda-fi-columns*
-
-Columns make what the items of a source show (sourceOptions columns), one
-after the other, as ddu.vim's: they are made as the items are drawn, so
-they show the trees as they are.
-
-filename	ext/column/filename (ddu-column-filename): the name of the
-		file, indented by its level, after an icon. Params:
-		collapsedIcon ("+"), expandedIcon ("-"), iconWidth (1),
-		indentationWidth (1), linkIcon ("@"),
-		maxSymlinkTargetWidth (48: "name -> target" is cut),
-		highlights (directoryIcon Special, directoryName
-		Directory, linkIcon and linkName Comment).
+UIS AND EXTENSIONS                                               *goda-fi-uis*
+
+The UIs and the extensions are in repositories of their own: install those
+you use, and add them in the configuration (|goda-fi-install|).
+
+goda-fi-ui-ff.vim
+		https://github.com/Shougo/goda-fi-ui-ff.vim
+		The UI ff (ui/ff, ddu-ui-ff).  |goda-fi-ui-ff|
+
+goda-fi-ui-filer.vim
+		https://github.com/Shougo/goda-fi-ui-filer.vim
+		The UI filer (ui/filer, ddu-ui-filer), made of ff: it needs
+		goda-fi-ui-ff.vim too.  |goda-fi-ui-filer|
+
+goda-fi-ext	https://github.com/Shougo/goda-fi-ext
+		Go packages (not a Vim plugin; their Vim script is
+		embedded): the sources (ext/source: file, filerec, fileold,
+		buffer, filepoint, fileexternal, rg, pathhistory, line,
+		register), the filters (ext/filter: matchersubstring,
+		matcherhidden, matcherrelative, matcherfiles, sorteralpha,
+		sortermtime, converterhldir), the kinds (ext/kind: file,
+		word, url) and the column filename (ext/column/filename).
+		Its README has their params and actions.
 
 ==============================================================================
 ALIASES                                                      *goda-fi-aliases*

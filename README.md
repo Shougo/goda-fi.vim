@@ -17,6 +17,13 @@ autoAction) work, with:
 - kinds: `file`, `word`, `url`
 - columns: `filename`
 
+The UIs and the extensions are in repositories of their own:
+[goda-fi-ui-ff.vim](https://github.com/Shougo/goda-fi-ui-ff.vim),
+[goda-fi-ui-filer.vim](https://github.com/Shougo/goda-fi-ui-filer.vim) (made
+of ff: it needs goda-fi-ui-ff.vim too), and
+[goda-fi-ext](https://github.com/Shougo/goda-fi-ext) (the sources, filters,
+kinds and columns: Go packages, not a Vim plugin).
+
 Trees are shown by `ff` (`displayTree`, `expandItem`) and by the filer `filer`
 (ddu-ui-filer, with the column `filename`), with the file operations of
 ddu-kind-file (copy, move, paste, rename, delete, trash, undo...).
@@ -30,15 +37,18 @@ skips redraws instead of queueing them.
 ## Try it
 
 You need Go 1.26 or newer, and Vim 9.1 or newer (with `+job +channel`) or
-Neovim 0.11 or newer. Install `Shougo/goda.vim` and `Shougo/goda-fi.vim` with
-your plugin manager, then create your configuration, a Go module of your own
-(keep it in your dotfiles; `examples/config` is only a template to copy):
+Neovim 0.11 or newer. Install `Shougo/goda.vim`, `Shougo/goda-fi.vim` and the
+UIs you use (`Shougo/goda-fi-ui-ff.vim`) with your plugin manager, then create
+your configuration, a Go module of your own (keep it in your dotfiles;
+`examples/config` is only a template to copy):
 
 ```sh
 mkdir -p ~/.vim/goda-fi && cd ~/.vim/goda-fi        # Neovim: ~/.config/nvim/goda-fi
 cp /path/to/goda-fi.vim/examples/config/main.go .
 go mod init goda-fi-config
 go get github.com/Shougo/goda-fi.vim@latest
+go get github.com/Shougo/goda-fi-ui-ff.vim@latest
+go get github.com/Shougo/goda-fi-ext@latest
 go mod tidy
 ```
 
@@ -49,11 +59,11 @@ The configuration, as a ddu.vim one (ddu.vim's extension names lose their
 package main
 
 import (
-	kindfile "github.com/Shougo/goda-fi.vim/ext/kind/file"
-	"github.com/Shougo/goda-fi.vim/ext/filter/matchersubstring"
-	"github.com/Shougo/goda-fi.vim/ext/source/filerec"
+	"github.com/Shougo/goda-fi-ext/ext/filter/matchersubstring"
+	kindfile "github.com/Shougo/goda-fi-ext/ext/kind/file"
+	"github.com/Shougo/goda-fi-ext/ext/source/filerec"
+	"github.com/Shougo/goda-fi-ui-ff.vim/ui/ff"
 	"github.com/Shougo/goda-fi.vim/fi"
-	"github.com/Shougo/goda-fi.vim/ui/ff"
 )
 
 func main() {
@@ -103,8 +113,8 @@ Everything else is in `:help goda_fi` ([doc/goda_fi.txt](doc/goda_fi.txt)).
 ## Tests
 
 ```sh
-go test ./...        # unit tests; also real Vim and Neovim if present
-go test -short ./... # unit tests only
+go test ./...                      # unit tests
+cd e2e && go test ./...            # real Vim and Neovim (a module of its own)
 ```
 
 ## License

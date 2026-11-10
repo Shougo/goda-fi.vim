@@ -39,6 +39,17 @@ jobs:
       - run: gofmt -l . | tee /dev/stderr | (! read)
       - run: go vet ./...
       - run: go test -race ./...
+      # The end-to-end tests: a module of their own (they need the UIs and
+      # the exts).
+      - run: go vet ./... && go test -race ./...
+        working-directory: e2e
+        # This module replaces the root one: when a dependency of the root
+        # is updated (dependabot updates each module alone), this go.mod is
+        # behind until it is tidied. Let go update it.
+        env:
+          GOFLAGS: -mod=mod
+      - run: go vet ./...
+        working-directory: examples/config
 
   # Windows and macOS: the same tests, end-to-end ones included.
   other:
@@ -79,6 +90,9 @@ jobs:
           GODA_NVIM: ${{ steps.nvim.outputs.executable }}
       - run: go vet ./...
       - run: go test ./...
+      - run: go vet ./... && go test ./...
+        working-directory: e2e
         env:
           GODA_VIM: ${{ steps.vim.outputs.executable }}
           GODA_NVIM: ${{ steps.nvim.outputs.executable }}
+          GOFLAGS: -mod=mod

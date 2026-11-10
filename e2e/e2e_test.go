@@ -1,5 +1,9 @@
 // Package e2e runs goda-fi in a real Vim and Neovim: the scenario
 // testdata/test.vim, with the binary of testbin.
+//
+// It is a module of its own, with the UIs and the exts (goda-fi-ui-ff.vim,
+// goda-fi-ui-filer.vim, goda-fi-ext), which require goda-fi.vim: this one
+// replaces it.
 package e2e
 
 import (
@@ -58,12 +62,6 @@ func setupBinary(t *testing.T, pkg string) []string {
 	if out, err := exec.Command("go", "build", "-o", bin, pkg).CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
 	}
-	// The Vim script of goda.vim: the module this module requires.
-	out, err := exec.Command("go", "list", "-m", "-f", "{{.Dir}}", "github.com/Shougo/goda.vim").Output()
-	if err != nil {
-		t.Fatalf("go list: %v", err)
-	}
-	godaDir := strings.TrimSpace(string(out))
 	root, err := filepath.Abs("..")
 	if err != nil {
 		t.Fatal(err)
@@ -73,12 +71,26 @@ func setupBinary(t *testing.T, pkg string) []string {
 		t.Fatal(err)
 	}
 	return append(os.Environ(),
-		"GODA_VIM_DIR="+godaDir,
+		// The Vim script of goda.vim and of the UIs: the modules this module
+		// requires.
+		"GODA_VIM_DIR="+moduleDir(t, "github.com/Shougo/goda.vim"),
 		"GODA_FI_DIR="+root,
+		"GODA_FI_UI_FF_DIR="+moduleDir(t, "github.com/Shougo/goda-fi-ui-ff.vim"),
+		"GODA_FI_UI_FILER_DIR="+moduleDir(t, "github.com/Shougo/goda-fi-ui-filer.vim"),
 		"GODA_FI_BINARY="+bin,
 		"GODA_FI_TREE="+tree,
 		"GODA_FI_RESULT="+filepath.Join(dir, "result"),
 	)
+}
+
+// moduleDir is the directory of the module path this module requires.
+func moduleDir(t *testing.T, path string) string {
+	t.Helper()
+	out, err := exec.Command("go", "list", "-m", "-f", "{{.Dir}}", path).Output()
+	if err != nil {
+		t.Fatalf("go list %s: %v", path, err)
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func run(t *testing.T, env []string, name string, args ...string) {

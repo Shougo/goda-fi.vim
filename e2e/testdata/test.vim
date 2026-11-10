@@ -9,6 +9,8 @@ let s:result = $GODA_FI_RESULT
 
 execute 'set runtimepath^=' . fnameescape($GODA_VIM_DIR)
 execute 'set runtimepath^=' . fnameescape($GODA_FI_DIR)
+execute 'set runtimepath^=' . fnameescape($GODA_FI_UI_FF_DIR)
+execute 'set runtimepath^=' . fnameescape($GODA_FI_UI_FILER_DIR)
 let g:goda_fi#binary = $GODA_FI_BINARY
 execute 'cd' fnameescape($GODA_FI_TREE)
 
