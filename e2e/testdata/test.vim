@@ -685,6 +685,46 @@ function! s:run() abort
     call goda_fi#ui#do_action('quit', {}, 'outer')
   endif
   only!
+  " The filer (a UI of ff) the same.
+  enew
+  let first = win_getid()
+  call s:start({'name': 'fouter', 'ui': 'filer', 'sources': ['file'],
+        \ 'uiParams': {'filer': {'split': split}}})
+  call s:wait('fouter', {-> index(s:flines('fouter'), 'a.txt') >= 0})
+  let outer = bufwinid(bufnr('goda-fi-filer-fouter'))
+  call win_gotoid(outer)
+  call s:start({'name': 'finner', 'ui': 'filer', 'sources': ['file'],
+        \ 'uiParams': {'filer': {'split': split}}})
+  call s:wait('finner', {-> index(s:flines('finner'), 'a.txt') >= 0})
+  call s:check('filer nested focus', bufname('%'), 'goda-fi-filer-finner')
+  call cursor(index(s:flines('finner'), 'a.txt') + 1, 1)
+  call goda_fi#ui#do_action('itemAction', {'name': 'open'})
+  call s:check('filer nested opened',
+        \ [win_getid() == first, s:rel('%'), win_id2win(outer) > 0],
+        \ [1, 'a.txt', has('nvim') ? 0 : 1])
+  if bufwinid(bufnr('goda-fi-filer-fouter')) > 0
+    call goda_fi#ui#do_action('quit', {}, 'fouter')
+  endif
+  only!
+  " A filer of split "no" started from the window of ff takes it; from a
+  " float, the window that one was started from (the float closes).
+  enew
+  let first = win_getid()
+  call s:start({'name': 'ffno', 'sources': ['file'], 'uiParams': {'ff': {'split': split}}})
+  call s:wait_lines('ffno', ['a.txt', 'b.go', 'msg.log', 'sub/'])
+  let outer = bufwinid(s:buf('ffno'))
+  call win_gotoid(outer)
+  call s:start({'name': 'fno', 'ui': 'filer', 'sources': ['file'],
+        \ 'uiParams': {'filer': {'split': 'no'}}})
+  call s:wait('fno', {-> index(s:flines('fno'), 'a.txt') >= 0})
+  let place = has('nvim') ? first : outer
+  call s:check('filer no window', win_getid() == place, 1)
+  call s:check('filer no ff', s:shown('ffno'), v:false)
+  call cursor(index(s:flines('fno'), 'a.txt') + 1, 1)
+  call goda_fi#ui#do_action('itemAction', {'name': 'open'})
+  call s:check('filer no opened', [win_getid() == place, s:rel('%')], [1, 'a.txt'])
+  call s:check('filer no windows', winnr('$'), has('nvim') ? 1 : 2)
+  only!
 
   " goda_fi#ui#save_cmaps(): the maps of the filter, and back.
   cnoremap <C-f> global-f
