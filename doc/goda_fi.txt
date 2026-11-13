@@ -116,6 +116,9 @@ goda_fi#build()
 	Builds the configuration in |g:goda_fi#config_dir| (after
 	"go mod tidy") into |g:goda_fi#binary|. A running binary is stopped;
 	the new one starts with the next |goda_fi#start()|.
+	NOTE: The binary is built by itself when it starts and there is none,
+	or it is of another version than the Vim script (see "build" of
+	|goda#register()|): not one of |g:goda_fi#binary| set by you.
 
                                                              *goda_fi#start()*
 goda_fi#start([{options}])
