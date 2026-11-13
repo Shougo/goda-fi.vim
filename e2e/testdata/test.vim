@@ -663,6 +663,29 @@ function! s:run() abort
   endif
   call goda_fi#ui#do_action('quit')
 
+  " A session started from the window of another (a mapping pressed twice):
+  " its actions go to the window that one was started from, and a floating
+  " window of it closes.
+  only!
+  enew
+  let first = win_getid()
+  let split = has('nvim') ? 'floating' : 'horizontal'
+  call s:start({'name': 'outer', 'sources': ['file'], 'uiParams': {'ff': {'split': split}}})
+  call s:wait_lines('outer', ['a.txt', 'b.go', 'msg.log', 'sub/'])
+  let outer = bufwinid(s:buf('outer'))
+  call win_gotoid(outer)
+  call s:start({'name': 'inner', 'sources': ['file'], 'uiParams': {'ff': {'split': split}}})
+  call s:wait_lines('inner', ['a.txt', 'b.go', 'msg.log', 'sub/'])
+  call s:check('nested focus', bufnr('%'), s:buf('inner'))
+  call s:check('nested outer', win_id2win(outer) > 0, has('nvim') ? 0 : 1)
+  call goda_fi#ui#do_action('itemAction')
+  call s:check('nested opened', [win_getid() == first, s:rel('%')], [1, 'a.txt'])
+  call s:check('nested inner', s:shown('inner'), v:false)
+  if s:shown('outer')
+    call goda_fi#ui#do_action('quit', {}, 'outer')
+  endif
+  only!
+
   " goda_fi#ui#save_cmaps(): the maps of the filter, and back.
   cnoremap <C-f> global-f
   call goda_fi#ui#save_cmaps(['<C-f>', '<C-g>'])
