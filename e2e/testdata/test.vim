@@ -597,7 +597,9 @@ function! s:run() abort
   call goda_fi#ui#do_action('quit')
 
   " imageExts (Neovim, with a vim.ui.img of the test that says what it is
-  " asked): the image over the preview window, which goes with it.
+  " asked): the image over the preview window, which goes with it, as
+  " large as it is or smaller to fit in, not stretched (a cell of 10x20
+  " pixels).
   if has('nvim')
     execute 'lua' join([
           \ '_G.goda_fi_img = {}',
@@ -605,36 +607,59 @@ function! s:run() abort
           \ 'vim.ui.img = {',
           \ '  set = function(d, o)',
           \ '    if type(d) == "string" then n = n + 1; d = n end',
-          \ '    table.insert(_G.goda_fi_img, {"set", d, o.row, o.col, o.width, o.height})',
+          \ '    table.insert(_G.goda_fi_img, {"set", d, o.row, o.col,',
+          \ '      o.width or vim.NIL, o.height or vim.NIL})',
           \ '    return d',
           \ '  end,',
           \ '  get = function() end,',
           \ '  del = function(id) table.insert(_G.goda_fi_img, {"del", id}); return true end,',
           \ '}'], "\n")
     let Img = {-> [luaeval('_G.goda_fi_img'), luaeval('(function() _G.goda_fi_img = {} end)()')][0]}
-    call s:start({'name': 'image', 'sources': ['file']})
-    call s:wait_lines('image', ['a.txt', 'b.go', 'msg.log', 'sub/'])
-    call goda_fi#ui#do_action('preview', {'imageExts': ['TXT']})
+    call goda_fi#ui#ff#_cell_pixels(10, 20)
+    " PNG of 2000x500 and of 100x60 pixels (what their headers say), and
+    " one that is not.
+    let images = tempname()
+    call mkdir(images)
+    let Be32 = {n -> list2blob([n / 16777216 % 256, n / 65536 % 256, n / 256 % 256, n % 256])}
+    let Png = {w, h -> 0z89504E470D0A1A0A0000000D49484452 + Be32(w) + Be32(h) + 0z0802000000}
+    call writefile(Png(2000, 500), images . '/a.png')
+    call writefile(Png(100, 60), images . '/b.png')
+    call writefile(['not a png'], images . '/c.png')
+    call s:start({'name': 'image', 'sources': [{'name': 'file', 'options': {'path': images}}]})
+    call s:wait_lines('image', ['a.png', 'b.png', 'c.png'])
+    call goda_fi#ui#do_action('preview', {'imageExts': ['PNG']})
     let pw = getwininfo(filter(range(1, winnr('$')),
           \ 'getwinvar(v:val, "&previewwindow")')->map('win_getid(v:val)')[0])[0]
-    let area = [pw.winrow, pw.wincol, pw.width, pw.height]
-    call s:check('image', [Img(), s:preview_lines()], [[['set', 1] + area], ['']])
+    " (80x9 cells: 800x180 pixels; it is 720x180.)
+    call s:check('image', [Img(), s:preview_lines(), pw.width, pw.height],
+          \ [[['set', 1, pw.winrow, pw.wincol, v:null, 9]], [''], 80, 9])
     " (The preview window goes down.)
     topleft new
     doautocmd WinScrolled
     let pw = getwininfo(pw.winid)[0]
-    call s:check('image moved', Img(), [['set', 1, pw.winrow, pw.wincol, pw.width, pw.height]])
+    call s:check('image moved', Img(), [['set', 1, pw.winrow, pw.wincol, v:null, 9]])
     close
     call win_gotoid(bufwinid(s:buf('image')))
     call Img()
+    " Another cell: the width limits it (400x180 pixels).
+    call goda_fi#ui#ff#_cell_pixels(5, 20)
+    call s:check('image cell', Img(), [['del', 1], ['set', 2, pw.winrow, pw.wincol, 80, v:null]])
+    call goda_fi#ui#ff#_cell_pixels(10, 20)
+    call Img()
+    " As large as it is.
     call cursor(2, 1)
-    call goda_fi#ui#do_action('preview', {'imageExts': ['.txt']})
-    call s:check('image not', [Img(), s:preview_lines()], [[['del', 1]], ['package b']])
+    call goda_fi#ui#do_action('preview', {'imageExts': ['.png']})
+    call s:check('image small', Img(), [['del', 3], ['set', 4, pw.winrow, pw.wincol, v:null, v:null]])
+    " Not a PNG: the preview of the kind.
+    call cursor(3, 1)
+    call goda_fi#ui#do_action('preview', {'imageExts': ['.png']})
+    call s:check('image not', [Img(), s:preview_lines()], [[['del', 4]], ['not a png']])
     call cursor(1, 1)
-    call goda_fi#ui#do_action('preview', {'imageExts': ['.txt']})
+    call goda_fi#ui#do_action('preview', {'imageExts': ['.png']})
     call Img()
     call goda_fi#ui#do_action('quit')
-    call s:check('image quit', Img(), [['del', 2]])
+    call s:check('image quit', Img(), [['del', 5]])
+    call goda_fi#ui#ff#_cell_pixels(0, 0)
   endif
 
   " split floating: Neovim only (Vim splits).
