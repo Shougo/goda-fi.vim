@@ -596,6 +596,47 @@ function! s:run() abort
   call s:check('preview toggled', s:preview_lines(), [])
   call goda_fi#ui#do_action('quit')
 
+  " imageExts (Neovim, with a vim.ui.img of the test that says what it is
+  " asked): the image over the preview window, which goes with it.
+  if has('nvim')
+    execute 'lua' join([
+          \ '_G.goda_fi_img = {}',
+          \ 'local n = 0',
+          \ 'vim.ui.img = {',
+          \ '  set = function(d, o)',
+          \ '    if type(d) == "string" then n = n + 1; d = n end',
+          \ '    table.insert(_G.goda_fi_img, {"set", d, o.row, o.col, o.width, o.height})',
+          \ '    return d',
+          \ '  end,',
+          \ '  get = function() end,',
+          \ '  del = function(id) table.insert(_G.goda_fi_img, {"del", id}); return true end,',
+          \ '}'], "\n")
+    let Img = {-> [luaeval('_G.goda_fi_img'), luaeval('(function() _G.goda_fi_img = {} end)()')][0]}
+    call s:start({'name': 'image', 'sources': ['file']})
+    call s:wait_lines('image', ['a.txt', 'b.go', 'msg.log', 'sub/'])
+    call goda_fi#ui#do_action('preview', {'imageExts': ['TXT']})
+    let pw = getwininfo(filter(range(1, winnr('$')),
+          \ 'getwinvar(v:val, "&previewwindow")')->map('win_getid(v:val)')[0])[0]
+    let area = [pw.winrow, pw.wincol, pw.width, pw.height]
+    call s:check('image', [Img(), s:preview_lines()], [[['set', 1] + area], ['']])
+    " (The preview window goes down.)
+    topleft new
+    doautocmd WinScrolled
+    let pw = getwininfo(pw.winid)[0]
+    call s:check('image moved', Img(), [['set', 1, pw.winrow, pw.wincol, pw.width, pw.height]])
+    close
+    call win_gotoid(bufwinid(s:buf('image')))
+    call Img()
+    call cursor(2, 1)
+    call goda_fi#ui#do_action('preview', {'imageExts': ['.txt']})
+    call s:check('image not', [Img(), s:preview_lines()], [[['del', 1]], ['package b']])
+    call cursor(1, 1)
+    call goda_fi#ui#do_action('preview', {'imageExts': ['.txt']})
+    call Img()
+    call goda_fi#ui#do_action('quit')
+    call s:check('image quit', Img(), [['del', 2]])
+  endif
+
   " split floating: Neovim only (Vim splits).
   call s:start({'name': 'float', 'sources': ['file'], 'uiParams': {'ff': {'split': 'floating'}}})
   call s:wait('float open', {-> bufnr('%') == s:buf('float')})
