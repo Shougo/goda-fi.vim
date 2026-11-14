@@ -41,11 +41,43 @@ Install `Shougo/goda.vim`, `Shougo/goda-fi.vim` and the UIs you use
 (`Shougo/goda-fi-ui-ff.vim`, `Shougo/goda-fi-ui-filer.vim`: |goda-fi-uis|)
 with your plugin manager, then make your configuration, a Go module of your
 own (keep it in your dotfiles), with the UIs and the extensions
-(goda-fi-ext):
+(goda-fi-ext): its main.go, as a ddu.vim configuration (ddu.vim's extension
+names lose their "_": "file_rec" is "filerec"),
+>go
+	package main
+
+	import (
+		"github.com/Shougo/goda-fi-ext/ext/filter/matchersubstring"
+		kindfile "github.com/Shougo/goda-fi-ext/ext/kind/file"
+		"github.com/Shougo/goda-fi-ext/ext/source/filerec"
+		"github.com/Shougo/goda-fi-ui-ff.vim/ui/ff"
+		"github.com/Shougo/goda-fi.vim/fi"
+	)
+
+	func main() {
+		b := fi.New()
+		b.AddUI(ff.New())
+		b.AddSource(filerec.New(filerec.Params{}))
+		b.AddFilter(matchersubstring.New(matchersubstring.Params{}))
+		b.AddKind(kindfile.New())
+		b.PatchGlobal(fi.Options{
+			UI: "ff",
+			SourceOptions: map[string]fi.SourceOptions{
+				"_": {Matchers: []string{"matchersubstring"}},
+			},
+			KindOptions: map[string]fi.KindOptions{
+				"file": {DefaultAction: "open"},
+			},
+		})
+		b.Main()
+	}
+<
+(A whole one is the author's:
+https://github.com/Shougo/shougo-s-github/tree/master/vim/rc/goda-fi), and
+the module of it:
 >sh
 	mkdir -p ~/.vim/goda-fi && cd ~/.vim/goda-fi
 	# Neovim: ~/.config/nvim/goda-fi
-	cp /path/to/goda-fi.vim/examples/config/main.go .
 	go mod init goda-fi-config
 	go get github.com/Shougo/goda-fi.vim@latest
 	go get github.com/Shougo/goda-fi-ui-ff.vim@latest

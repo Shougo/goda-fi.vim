@@ -39,12 +39,11 @@ skips redraws instead of queueing them.
 You need Go 1.26 or newer, and Vim 9.1 or newer (with `+job +channel`) or
 Neovim 0.11 or newer. Install `Shougo/goda.vim`, `Shougo/goda-fi.vim` and the
 UIs you use (`Shougo/goda-fi-ui-ff.vim`) with your plugin manager, then create
-your configuration, a Go module of your own (keep it in your dotfiles;
-`examples/config` is only a template to copy):
+your configuration, a Go module of your own (keep it in your dotfiles), with
+its `main.go` (below):
 
 ```sh
 mkdir -p ~/.vim/goda-fi && cd ~/.vim/goda-fi        # Neovim: ~/.config/nvim/goda-fi
-cp /path/to/goda-fi.vim/examples/config/main.go .
 go mod init goda-fi-config
 go get github.com/Shougo/goda-fi.vim@latest
 go get github.com/Shougo/goda-fi-ui-ff.vim@latest
@@ -52,8 +51,8 @@ go get github.com/Shougo/goda-fi-ext@latest
 go mod tidy
 ```
 
-The configuration, as a ddu.vim one (ddu.vim's extension names lose their
-`_`: `file_rec` is `filerec`):
+The configuration, `main.go`, as a ddu.vim one (ddu.vim's extension names
+lose their `_`: `file_rec` is `filerec`):
 
 ```go
 package main
@@ -85,6 +84,7 @@ func main() {
 }
 ```
 
+(A whole one: [the author's](https://github.com/Shougo/shougo-s-github/tree/master/vim/rc/goda-fi).)
 Build it once (and after every change of the configuration):
 
 ```vim
