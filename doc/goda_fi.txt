@@ -91,6 +91,23 @@ needed):
 >vim
 	:call goda_fi#build()
 <
+With goda-pm.vim, to build after every update of the plugins:
+>toml
+	[[plugins]]
+	repo = 'Shougo/goda.vim'
+
+	[[plugins]]
+	repo = 'Shougo/goda-fi.vim'
+	depends = 'goda.vim'
+	lazy = true
+	hook_post_update = 'call goda_fi#build()'
+
+	[[plugins]]
+	repo = 'Shougo/goda-fi-ui-ff.vim'
+	depends = 'goda-fi.vim'
+	lazy = true
+	hook_post_update = 'call goda_fi#build()'
+<
 The binary goes to a cache directory (|g:goda_fi#binary|), and is started by
 the first |goda_fi#start()|.
 
