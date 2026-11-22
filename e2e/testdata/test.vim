@@ -373,7 +373,9 @@ function! s:run() abort
         \   &columns / 2]))
   " limitPath: not above it.
   call goda_fi#ui#do_action('itemAction', {'name': 'narrow', 'params': {'path': '..'}})
+  " (The items are gathered again: they come back after a while.)
   sleep 200m
+  call s:wait('limitPath', {-> s:flines('fx')[1:] ==# ['+ a/', '  y.txt']})
   call s:check('limitPath', [s:flines('fx')[1:], b:goda_fi_ui_filer_path], [['+ a/', '  y.txt'], fx])
   " isGrouped.
   call cursor(2, 1)
@@ -417,7 +419,10 @@ function! s:run() abort
   " pathhistory: the paths narrow left.
   call cursor(1, 1)
   call goda_fi#ui#do_action('itemAction', {'name': 'narrow'})
-  call s:wait('narrow a', {-> b:goda_fi_ui_filer_path ==# s:p(fx . '/a')})
+  " (The path changes before the items come: the action needs the item
+  " under the cursor.)
+  call s:wait('narrow a', {-> b:goda_fi_ui_filer_path ==# s:p(fx . '/a')
+        \ && match(s:flines('fx'), 'b/') >= 0})
   call goda_fi#ui#do_action('itemAction', {'name': 'narrow', 'params': {'path': '..'}})
   call s:wait('narrow back', {-> b:goda_fi_ui_filer_path ==# fx})
   call s:start({'name': 'ph', 'sources': ['pathhistory']})
@@ -721,6 +726,7 @@ function! s:run() abort
   call s:start({'name': 'exp', 'sources': ['filerec'], 'expandInput': v:true,
         \ 'input': '$GODA_FI_PAT'})
   call s:check('expandInput', s:wait_lines('exp', ['sub/deep/d.md']), ['sub/deep/d.md'])
+  call s:wait('expandInput status', {-> &l:statusline =~# ' \$GODA_FI_PAT$'})
   call s:check('expandInput status', &l:statusline =~# ' \$GODA_FI_PAT$', 1)
   call feedkeys(":call goda_fi#ui#do_action('openFilterWindow')\<CR>"
         \ . "\<C-u>$GODA_FI_PAT/d\<CR>", 'xt')
