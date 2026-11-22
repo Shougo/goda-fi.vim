@@ -3,8 +3,8 @@ package fi
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
-	"maps"
+
+	"github.com/Shougo/goda.vim/sdk/custom"
 )
 
 // Options configure a session, as ddu.vim's options: the JSON names are
@@ -194,61 +194,27 @@ func strOr(p *string, def string) string {
 }
 
 // patch is an Options as a generic map, to be merged.
-type patch = map[string]any
+type patch = custom.Map
 
-func toPatch(v any) (patch, error) {
-	if p, ok := v.(map[string]any); ok {
-		return p, nil
-	}
-	b, err := json.Marshal(v)
-	if err != nil {
-		return nil, err
-	}
-	var p patch
-	if err := json.Unmarshal(b, &p); err != nil {
-		return nil, err
-	}
-	return p, nil
+// newCustom is the options of the configuration, as ddu.vim: maps merged
+// recursively, nil unset, an unknown option an error (goda.vim's
+// sdk/custom).
+func newCustom() *custom.Patches[Options] {
+	return custom.New[Options](custom.Deep(), custom.Strict())
 }
+
+// merger merges and decodes the options outside the configuration (those
+// of a source, of a session), in the same way.
+var merger = newCustom()
+
+func toPatch(v any) (patch, error) { return custom.ToMap(v) }
 
 // mergePatch merges src into dst: nil values are unset, maps are merged
 // recursively, the rest is replaced. The maps of dst are not modified.
-func mergePatch(dst, src patch) patch {
-	out := maps.Clone(dst)
-	if out == nil {
-		out = patch{}
-	}
-	for k, v := range src {
-		if v == nil {
-			continue
-		}
-		if sm, ok := v.(map[string]any); ok {
-			if dm, ok := out[k].(map[string]any); ok {
-				out[k] = mergePatch(dm, sm)
-				continue
-			}
-			out[k] = mergePatch(nil, sm)
-			continue
-		}
-		out[k] = v
-	}
-	return out
-}
+func mergePatch(dst, src patch) patch { return merger.Merge(dst, src) }
 
 // decodeOptions decodes merged patches.
-func decodeOptions(p patch) (Options, error) {
-	var o Options
-	b, err := json.Marshal(p)
-	if err != nil {
-		return o, err
-	}
-	dec := json.NewDecoder(bytes.NewReader(b))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&o); err != nil {
-		return o, fmt.Errorf("invalid options: %w", err)
-	}
-	return o, nil
-}
+func decodeOptions(p patch) (Options, error) { return merger.Decode(p) }
 
 // sourceOptions are the options of the source at index i: "_", those of
 // its name, those of the SourceSpec.

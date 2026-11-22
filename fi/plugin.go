@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/Shougo/goda.vim/sdk"
+	"github.com/Shougo/goda.vim/sdk/custom"
 )
 
 type engine struct {
@@ -123,20 +124,19 @@ func (e *engine) sessionArg(params []any, rest ...any) (*session, error) {
 // options are the options of a start: the builder's, Vim's patches and
 // those of the start, merged.
 func (e *engine) options(user, patches map[string]any) (Options, patch, error) {
-	name, _ := user["name"].(string)
-	p := mergePatch(patch{"name": "default"}, e.b.global)
-	vimGlobal, _ := patches["global"].(map[string]any)
-	vimLocal, _ := patches["local"].(map[string]any)
-	if name == "" {
-		name, _ = mergePatch(p, vimGlobal)["name"].(string)
+	r := custom.Request{Local: map[string]custom.Map{}}
+	r.Global, _ = patches["global"].(map[string]any)
+	if local, ok := patches["local"].(map[string]any); ok {
+		for name, l := range local {
+			if m, ok := l.(map[string]any); ok {
+				r.Local[name] = m
+			}
+		}
 	}
-	p = mergePatch(p, e.b.local[name])
-	p = mergePatch(p, vimGlobal)
-	if l, ok := vimLocal[name].(map[string]any); ok {
-		p = mergePatch(p, l)
+	o, p, err := e.b.custom.Resolve(user, r)
+	if err == nil {
+		err = e.validate(&o)
 	}
-	p = mergePatch(p, user)
-	o, err := e.check(p)
 	return o, p, err
 }
 
@@ -146,13 +146,18 @@ func (e *engine) check(p patch) (Options, error) {
 	if err != nil {
 		return o, err
 	}
-	if errs := e.b.checkNames("goda_fi#start()", &o); len(errs) > 0 {
-		return o, fmt.Errorf("%s", errs[0])
+	return o, e.validate(&o)
+}
+
+// validate checks the names of decoded options and the UI.
+func (e *engine) validate(o *Options) error {
+	if errs := e.b.checkNames("goda_fi#start()", o); len(errs) > 0 {
+		return fmt.Errorf("%s", errs[0])
 	}
 	if o.UI == "" {
-		return o, fmt.Errorf("no ui is set")
+		return fmt.Errorf("no ui is set")
 	}
-	return o, nil
+	return nil
 }
 
 func (e *engine) start(ctx context.Context, h sdk.Host, params []any) (any, error) {

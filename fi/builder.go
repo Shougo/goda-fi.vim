@@ -9,6 +9,7 @@ import (
 
 	"github.com/Shougo/goda.vim/host"
 	"github.com/Shougo/goda.vim/sdk"
+	"github.com/Shougo/goda.vim/sdk/custom"
 )
 
 // Builder collects the extensions and the configuration. It is what a user's
@@ -34,8 +35,7 @@ type Builder struct {
 	customActions   map[string]map[string]map[string]Action
 	customUIActions map[string]map[string]UIAction
 
-	global patch
-	local  map[string]patch
+	custom *custom.Patches[Options]
 	errs   []string
 }
 
@@ -52,8 +52,7 @@ func New() *Builder {
 		customActions:   map[string]map[string]map[string]Action{},
 		customUIActions: map[string]map[string]UIAction{},
 
-		global: patch{},
-		local:  map[string]patch{},
+		custom: newCustom(),
 	}
 	b.AddKind(baseKind{})
 	// The chooser of chooseAction.
@@ -164,23 +163,17 @@ func (b *Builder) AddUIAction(ui, name string, a UIAction) *Builder {
 
 // PatchGlobal merges o into the options of every session.
 func (b *Builder) PatchGlobal(o Options) *Builder {
-	p, err := toPatch(o)
-	if err != nil {
+	if err := b.custom.PatchGlobal(o); err != nil {
 		b.fail("PatchGlobal: %v", err)
-		return b
 	}
-	b.global = mergePatch(b.global, p)
 	return b
 }
 
 // PatchLocal merges o into the options of the sessions named name.
 func (b *Builder) PatchLocal(name string, o Options) *Builder {
-	p, err := toPatch(o)
-	if err != nil {
+	if err := b.custom.PatchLocal(name, o); err != nil {
 		b.fail("PatchLocal: %v", err)
-		return b
 	}
-	b.local[name] = mergePatch(b.local[name], p)
 	return b
 }
 
@@ -214,9 +207,9 @@ func (b *Builder) Validate() error {
 		}
 		errs = append(errs, b.checkNames(where, &o)...)
 	}
-	check("global", b.global)
-	for name, p := range b.local {
-		check("local "+name, mergePatch(b.global, p))
+	check("global", b.custom.Global())
+	for name, p := range b.custom.Locals() {
+		check("local "+name, mergePatch(b.custom.Global(), p))
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("goda-fi configuration:\n  %s", strings.Join(errs, "\n  "))
