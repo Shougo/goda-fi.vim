@@ -918,7 +918,7 @@ func TestTree(t *testing.T) {
 	ui("expandItem", idOf(t, v, "a/"), map[string]any{"mode": "toggle"})
 	v = waitView(t, f.ui, treeIs("a/:0 b:0"))
 	ui("expandItem", idOf(t, v, "a/"), nil)
-	v = waitView(t, f.ui, treeIs("a/:0+ c/:1+ e:2 d:1 b:0"))
+	waitView(t, f.ui, treeIs("a/:0+ c/:1+ e:2 d:1 b:0"))
 	// Gathered again: expanded again.
 	f.call(t, "redraw", "tree", map[string]any{"refresh": true})
 	v = waitView(t, f.ui, func(v *View) bool { return done(v) && tree(v) == "a/:0+ c/:1+ e:2 d:1 b:0" })
