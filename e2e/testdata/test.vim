@@ -14,6 +14,9 @@ execute 'set runtimepath^=' . fnameescape($GODA_FI_UI_FILER_DIR)
 let g:goda_fi#binary = $GODA_FI_BINARY
 execute 'cd' fnameescape($GODA_FI_TREE)
 
+" (Not defined without syntax on Vim.)
+highlight Statement ctermfg=3
+
 let s:events = []
 augroup test
   autocmd!
@@ -41,6 +44,25 @@ endfunction
 
 function! s:buf(name) abort
   return bufnr('goda-fi-ff-' . a:name)
+endfunction
+
+" The highlights of the buffer of {name}: [[row, col, length, group]].
+function! s:highlights(name) abort
+  let bufnr = s:buf(a:name)
+  if has('nvim')
+    let ns = nvim_get_namespaces()['goda-fi-ff']
+    return nvim_buf_get_extmarks(bufnr, ns, 0, -1, {'details': v:true})
+          \ ->filter({_, m -> has_key(m[3], 'hl_group')})
+          \ ->map({_, m -> [m[1] + 1, m[2] + 1, m[3].end_col - m[2], m[3].hl_group]})
+          \ ->sort()
+  endif
+  let hls = []
+  for row in range(1, len(getbufline(bufnr, 1, '$')))
+    for p in prop_list(row, {'bufnr': bufnr})
+      call add(hls, [row, p.col, p.length, prop_type_get(p.type).highlight])
+    endfor
+  endfor
+  return sort(hls)
 endfunction
 
 function! s:lines(name) abort
@@ -177,6 +199,10 @@ function! s:run() abort
   call goda_fi#ui#do_action('toggleSelectItem')
   call goda_fi#ui#do_action('cursorNext')
   call goda_fi#ui#do_action('toggleSelectItem')
+  " (The lines highlighted: "Statement", defined at the top.)
+  call s:wait('selected highlights', {-> len(s:highlights('rec')) == 2})
+  call s:check('selected highlights', s:highlights('rec'),
+        \ [[1, 1, 9, 'Statement'], [2, 1, 13, 'Statement']])
   call goda_fi#ui#do_action('itemAction', {'name': 'quickfix'})
   call s:check('quickfix', map(getqflist(), 's:rel(v:val.bufnr)'),
         \ ['sub/c.txt', 'sub/deep/d.md'])
