@@ -422,7 +422,7 @@ goda-fi-ext	https://github.com/Shougo/goda-fi-ext
 		Go packages (not a Vim plugin; their Vim script is
 		embedded): the sources (ext/source: file, filerec, fileold,
 		buffer, filepoint, fileexternal, rg, pathhistory, line,
-		register), the filters (ext/filter: matchersubstring,
+		register, app), the filters (ext/filter: matchersubstring,
 		matcherhidden, matcherrelative, matcherfiles, sorteralpha,
 		sortermtime, converterhldir), the kinds (ext/kind: file,
 		word, url) and the column filename (ext/column/filename).
