@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/Shougo/goda.vim/sdk"
 	"github.com/Shougo/goda.vim/sdk/custom"
@@ -22,7 +23,13 @@ type engine struct {
 }
 
 func newEngine(b *Builder) *engine {
-	return &engine{b: b, sessions: map[string]*session{}, pushed: map[string][]*session{}}
+	// The versions start at the time the binary starts: those of a binary
+	// started again (goda#build(), goda#stop()) are newer than those of the
+	// one before, which the UIs of Vim still have (a version not newer than
+	// theirs is not drawn). In microseconds: far fewer Views than that, and
+	// exact in a float too (< 2^53).
+	return &engine{b: b, sessions: map[string]*session{}, pushed: map[string][]*session{},
+		nextVersion: time.Now().UnixMicro()}
 }
 
 func (e *engine) Name() string { return PluginName }
