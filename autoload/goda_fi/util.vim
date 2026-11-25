@@ -10,20 +10,6 @@ function! goda_fi#util#print_error(msg) abort
   echohl None
 endfunction
 
-" base with patch over it: dictionaries are merged, recursively; the rest is
-" replaced. Neither is modified.
-function! goda_fi#util#merge(base, patch) abort
-  let out = copy(a:base)
-  for [key, value] in items(a:patch)
-    if type(value) == v:t_dict && type(get(out, key, v:null)) == v:t_dict
-      let out[key] = goda_fi#util#merge(out[key], value)
-    else
-      let out[key] = deepcopy(value)
-    endif
-  endfor
-  return out
-endfunction
-
 " doautocmd User {name}, if there is one: without one, Vim reports "No
 " matching autocommands" and, in insert mode, misses TextChangedI.
 function! goda_fi#util#doautocmd(name) abort

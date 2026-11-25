@@ -38,7 +38,7 @@ func (e *engine) Name() string { return PluginName }
 // binary goes with (sdk.ScriptVersioner): goda.vim refuses a binary of
 // another one and says to build it again. Bump it with s:version there when
 // the Vim script and the binary no longer work together.
-const ScriptVersion = 2
+const ScriptVersion = 3
 
 func (e *engine) ScriptVersion() int { return ScriptVersion }
 
@@ -50,11 +50,10 @@ var handlerNames = []string{
 
 func (e *engine) Handlers() map[string]sdk.Handler {
 	return map[string]sdk.Handler{
-		// start(options, context, patches): starts (or resumes) the
-		// session of options.name. Meant as a notification;
-		// goda_fi#start() with sync waits for it. context is where Vim is
-		// ({bufName, bufNr, winId, cwd, mode}); patches are those of
-		// goda_fi#custom#patch_*() ({global, local: {name: patch}}).
+		// start(options, context): starts (or resumes) the session of
+		// options.name. Meant as a notification; goda_fi#start() with sync
+		// waits for it. context is where Vim is ({bufName, bufNr, winId,
+		// cwd, mode}).
 		"start": e.start,
 		// redraw(name, {input, refresh}): filters with input, gathers
 		// again (refresh), and draws the UI.
@@ -128,19 +127,10 @@ func (e *engine) sessionArg(params []any, rest ...any) (*session, error) {
 	return e.session(name)
 }
 
-// options are the options of a start: the builder's, Vim's patches and
-// those of the start, merged.
-func (e *engine) options(user, patches map[string]any) (Options, patch, error) {
-	r := custom.Request{Local: map[string]custom.Map{}}
-	r.Global, _ = patches["global"].(map[string]any)
-	if local, ok := patches["local"].(map[string]any); ok {
-		for name, l := range local {
-			if m, ok := l.(map[string]any); ok {
-				r.Local[name] = m
-			}
-		}
-	}
-	o, p, err := e.b.custom.Resolve(user, r)
+// options are the options of a start: the builder's and those of the start,
+// merged.
+func (e *engine) options(user map[string]any) (Options, patch, error) {
+	o, p, err := e.b.custom.Resolve(user, custom.Request{})
 	if err == nil {
 		err = e.validate(&o)
 	}
@@ -168,15 +158,15 @@ func (e *engine) validate(o *Options) error {
 }
 
 func (e *engine) start(ctx context.Context, h sdk.Host, params []any) (any, error) {
-	var user, context, patches map[string]any
-	if err := sdk.DecodeArgs(params, &user, sdk.Optional(&context), sdk.Optional(&patches)); err != nil {
+	var user, context map[string]any
+	if err := sdk.DecodeArgs(params, &user, sdk.Optional(&context)); err != nil {
 		return nil, err
 	}
 	var c Context
 	if err := Decode(context, &c); err != nil {
 		return nil, err
 	}
-	o, p, err := e.options(user, patches)
+	o, p, err := e.options(user)
 	if err != nil {
 		return nil, fmt.Errorf("goda-fi: %w", err)
 	}
@@ -196,7 +186,7 @@ func (e *engine) start(ctx context.Context, h sdk.Host, params []any) (any, erro
 	var wait <-chan struct{}
 	if err := s.call(func(st *state) error {
 		var err error
-		wait, err = st.start(o, p, c, user, vimActionNames(patches["actions"]))
+		wait, err = st.start(o, p, c, user)
 		return err
 	}); err != nil {
 		return nil, fmt.Errorf("goda-fi: %w", err)
@@ -438,28 +428,6 @@ func (e *engine) sessionNames(context.Context, sdk.Host, []any) (any, error) {
 	}
 	sort.Strings(names)
 	return names, nil
-}
-
-// vimActionNames are the names of the actions of goda_fi#custom#action(),
-// as the patches carry them: {type: {name: [action, ...]}}.
-func vimActionNames(v any) map[string]map[string][]string {
-	out := map[string]map[string][]string{}
-	types, _ := v.(map[string]any)
-	for typ, x := range types {
-		names, _ := x.(map[string]any)
-		for name, y := range names {
-			list, _ := y.([]any)
-			for _, a := range list {
-				if s, ok := a.(string); ok {
-					if out[typ] == nil {
-						out[typ] = map[string][]string{}
-					}
-					out[typ][name] = append(out[typ][name], s)
-				}
-			}
-		}
-	}
-	return out
 }
 
 // itemDict is an item as Vim sees it: with its ID (__id) and source.

@@ -121,7 +121,7 @@ func (b *Builder) AddActionAlias(alias, base string) *Builder {
 //		},
 //	})
 //
-// Actions can also be Vim functions: goda_fi#custom#action().
+// An action can call a Vim function with h.Call.
 func (b *Builder) AddKindAction(kind, name string, a Action) *Builder {
 	return b.addCustomAction("kind", kind, name, a)
 }

@@ -8,16 +8,7 @@
 " The version of this Vim script that the binary goes with (ScriptVersion of
 " its Go side): goda.vim refuses a binary of another one, and says to build
 " it again. Bumped with it when they no longer work together.
-let s:version = #{version: 2, module: 'github.com/Shougo/goda-fi.vim'}
-
-" Patches of the options made at run time, as ddu#custom#patch_*(). They live
-" here, not in the binary: they survive a restart of it, and they can be made
-" before it is started. Every start carries them.
-let s:global_patch = {}
-let s:local_patch = {}
-" The actions of goda_fi#custom#action(): {type: {name: {action: Funcref}}}.
-" Every start carries their names; the binary calls them back.
-let s:custom_actions = {'ui': {}, 'source': {}, 'kind': {}}
+let s:version = #{version: 3, module: 'github.com/Shougo/goda-fi.vim'}
 
 " ---------------------------------------------------------------------------
 " Setup
@@ -38,9 +29,8 @@ call s:goda.register()
 " ---------------------------------------------------------------------------
 " API (that of ddu.vim)
 
-" Start a session with these options (merged over the configuration and the
-" patches); a session of the same name is replaced, or resumed with
-" {'resume': v:true}.
+" Start a session with these options (merged over the configuration); a
+" session of the same name is replaced, or resumed with {'resume': v:true}.
 function! goda_fi#start(options = {}) abort
   try
     let context = {
@@ -50,7 +40,7 @@ function! goda_fi#start(options = {}) abort
           \ 'cwd': getcwd(),
           \ 'mode': mode(),
           \ }
-    call goda#request('fi', 'start', a:options, context, s:patches())
+    call goda#request('fi', 'start', a:options, context)
   catch
     call goda_fi#util#print_error(v:exception)
   endtry
@@ -86,51 +76,12 @@ function! goda_fi#sessions() abort
   return goda#is_running('fi') ? goda#request('fi', 'sessions') : []
 endfunction
 
-" ---------------------------------------------------------------------------
-" Patches: goda_fi#custom#*() keep them here.
-
-function! goda_fi#_patch_global(patch) abort
-  let s:global_patch = goda_fi#util#merge(s:global_patch, a:patch)
-endfunction
-
-function! goda_fi#_patch_local(name, patch) abort
-  let s:local_patch[a:name] = goda_fi#util#merge(get(s:local_patch, a:name, {}), a:patch)
-endfunction
-
-function! goda_fi#_get_global() abort
-  return deepcopy(s:global_patch)
-endfunction
-
-function! goda_fi#_get_local() abort
-  return deepcopy(s:local_patch)
-endfunction
-
-function! s:patches() abort
-  let actions = {}
-  for [type, names] in items(s:custom_actions)
-    let actions[type] = map(copy(names), 'keys(v:val)')
-  endfor
-  return {'global': s:global_patch, 'local': s:local_patch, 'actions': actions}
-endfunction
-
-" ---------------------------------------------------------------------------
-" Actions as Vim functions: goda_fi#custom#action() keeps them here.
-
-function! goda_fi#_custom_action(type, names, action, func) abort
-  if !has_key(s:custom_actions, a:type)
-    throw 'goda-fi: invalid custom action type: ' . a:type
+" The options of the session {name} (that of the current buffer), as set
+" ({} without the session), as ddu#custom#get_current().
+function! goda_fi#get_current(name = '') abort
+  let name = a:name !=# '' ? a:name : get(b:, 'goda_fi_name', '')
+  if name ==# '' || !goda#is_running('fi')
+    return {}
   endif
-  let l:Func = type(a:func) == v:t_func ? a:func : function(a:func)
-  for name in split(a:names, '\s*,\s*')
-    let s:custom_actions[a:type][name] = extend(
-          \ get(s:custom_actions[a:type], name, {}), {a:action : l:Func})
-  endfor
-endfunction
-
-" The binary runs an action of goda_fi#custom#action(): the action flags (a
-" Number, 0 for anything else, as ddu.vim).
-function! goda_fi#_call_action(type, name, action, args) abort
-  let l:Func = s:custom_actions[a:type][a:name][a:action]
-  let flags = call(l:Func, [a:args])
-  return type(flags) == v:t_number ? flags : 0
+  return goda#request('fi', 'getCurrent', name)
 endfunction

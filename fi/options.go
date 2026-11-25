@@ -9,8 +9,8 @@ import (
 
 // Options configure a session, as ddu.vim's options: the JSON names are
 // ddu.vim's. They are both what is in effect and a patch: PatchGlobal and
-// PatchLocal (and goda_fi#custom#patch_global() and the options of
-// goda_fi#start()) merge one into what is there. Unset fields (nil, "") keep
+// PatchLocal (and the options of goda_fi#start()) merge one into
+// what is there. Unset fields (nil, "") keep
 // what is there; maps are merged by key, recursively; slices are replaced.
 type Options struct {
 	// Name of the session: a session is resumed by its name.

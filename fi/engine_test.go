@@ -296,7 +296,7 @@ func TestGatherAndFilter(t *testing.T) {
 	gate := make(chan struct{})
 	src := &listSource{name: "list", batches: [][]string{{"apple", "banana"}, {"cherry"}}, gate: gate}
 	f := newFixture(t, src)
-	f.call(t, "start", map[string]any{"name": "a", "sources": []any{"list"}}, map[string]any{}, map[string]any{})
+	f.call(t, "start", map[string]any{"name": "a", "sources": []any{"list"}}, map[string]any{})
 
 	v := waitView(t, f.ui, func(v *View) bool { return len(v.Items) == 2 })
 	if v.Context.Done || !v.InitCursor || words(v.Items) != "apple banana" {
@@ -317,7 +317,7 @@ func TestGatherAndFilter(t *testing.T) {
 
 func TestVersionsGrow(t *testing.T) {
 	f := newFixture(t, &listSource{name: "list", batches: [][]string{{"a"}, {"b"}, {"c"}}})
-	f.call(t, "start", map[string]any{"name": "v", "sources": []any{"list"}}, map[string]any{}, map[string]any{})
+	f.call(t, "start", map[string]any{"name": "v", "sources": []any{"list"}}, map[string]any{})
 	var last int64
 	v := waitView(t, f.ui, func(v *View) bool {
 		if v.Version <= last {
@@ -333,7 +333,7 @@ func TestVersionsGrow(t *testing.T) {
 
 func TestItemActionByVersion(t *testing.T) {
 	f := newFixture(t, &listSource{name: "list", batches: [][]string{{"apple", "banana", "cherry"}}})
-	f.call(t, "start", map[string]any{"name": "x", "sources": []any{"list"}}, map[string]any{}, map[string]any{})
+	f.call(t, "start", map[string]any{"name": "x", "sources": []any{"list"}}, map[string]any{})
 	v1 := waitView(t, f.ui, done)
 
 	f.call(t, "redraw", "x", map[string]any{"input": "e"})
@@ -353,7 +353,7 @@ func TestItemActionByVersion(t *testing.T) {
 
 func TestSelectAndActionNames(t *testing.T) {
 	f := newFixture(t, &listSource{name: "list", batches: [][]string{{"a", "b", "c"}}})
-	f.call(t, "start", map[string]any{"name": "s", "sources": []any{"list"}}, map[string]any{}, map[string]any{})
+	f.call(t, "start", map[string]any{"name": "s", "sources": []any{"list"}}, map[string]any{})
 	v := waitView(t, f.ui, done)
 	f.call(t, "uiAction", "s", "toggleSelectItem", map[string]any{}, map[string]any{"version": v.Version, "cursor": 1})
 	f.call(t, "uiAction", "s", "toggleSelectItem", map[string]any{}, map[string]any{"version": v.Version, "cursor": 3})
@@ -375,18 +375,18 @@ func TestSelectAndActionNames(t *testing.T) {
 func TestResume(t *testing.T) {
 	src := &listSource{name: "list", batches: [][]string{{"apple", "banana"}}}
 	f := newFixture(t, src)
-	f.call(t, "start", map[string]any{"name": "r", "sources": []any{"list"}, "input": "ban"}, map[string]any{}, map[string]any{})
+	f.call(t, "start", map[string]any{"name": "r", "sources": []any{"list"}, "input": "ban"}, map[string]any{})
 	v1 := waitView(t, f.ui, done)
 	f.call(t, "quit", "r")
 	<-f.ui.quits
 
-	f.call(t, "start", map[string]any{"name": "r", "resume": true}, map[string]any{}, map[string]any{})
+	f.call(t, "start", map[string]any{"name": "r", "resume": true}, map[string]any{})
 	v2 := waitView(t, f.ui, done)
 	if v2.Context.Input != "ban" || words(v2.Items) != "banana" || v2.Items[0].ID() != v1.Items[0].ID() || v2.InitCursor {
 		t.Errorf("resumed: %q %q", v2.Context.Input, words(v2.Items))
 	}
 	// Without resume: gathered again.
-	f.call(t, "start", map[string]any{"name": "r", "sources": []any{"list"}}, map[string]any{}, map[string]any{})
+	f.call(t, "start", map[string]any{"name": "r", "sources": []any{"list"}}, map[string]any{})
 	v3 := waitView(t, f.ui, done)
 	if words(v3.Items) != "apple banana" || v3.Items[0].ID() == v1.Items[0].ID() {
 		t.Errorf("restarted: %q", words(v3.Items))
@@ -410,7 +410,7 @@ func TestResumeOnlyWhereItWasStarted(t *testing.T) {
 	start := func(cwd string, sources ...any) *View {
 		t.Helper()
 		f.call(t, "start", map[string]any{"name": "c", "sources": sources, "resume": true},
-			map[string]any{"cwd": cwd}, map[string]any{})
+			map[string]any{"cwd": cwd})
 		return waitView(t, f.ui, done)
 	}
 	v1 := start(dir1, "path")
@@ -431,7 +431,7 @@ func TestResumeOnlyWhereItWasStarted(t *testing.T) {
 func TestSync(t *testing.T) {
 	src := &listSource{name: "list", batches: [][]string{{"a"}, {"b"}}}
 	f := newFixture(t, src)
-	f.call(t, "start", map[string]any{"name": "y", "sources": []any{"list"}, "sync": true}, map[string]any{}, map[string]any{})
+	f.call(t, "start", map[string]any{"name": "y", "sources": []any{"list"}, "sync": true}, map[string]any{})
 	// start returned: every item is there, in one view.
 	select {
 	case v := <-f.ui.views:
@@ -448,7 +448,7 @@ func TestVolatileAndConverter(t *testing.T) {
 	f.call(t, "start", map[string]any{
 		"name": "vo", "sources": []any{"echo"},
 		"sourceOptions": map[string]any{"echo": map[string]any{"volatile": true, "converters": []any{"upper"}}},
-	}, map[string]any{}, map[string]any{})
+	}, map[string]any{})
 	waitView(t, f.ui, done)
 	f.call(t, "redraw", "vo", map[string]any{"input": "zz"})
 	v := waitView(t, f.ui, func(v *View) bool {
@@ -462,7 +462,7 @@ func TestVolatileAndConverter(t *testing.T) {
 func TestPersistAndSearchPath(t *testing.T) {
 	f := newFixture(t, &listSource{name: "list", batches: [][]string{{"a", "b"}}})
 	f.kind.res = ActionResult{Flags: Persist, SearchPath: "/b"}
-	f.call(t, "start", map[string]any{"name": "p", "sources": []any{"list"}}, map[string]any{}, map[string]any{})
+	f.call(t, "start", map[string]any{"name": "p", "sources": []any{"list"}}, map[string]any{})
 	v := waitView(t, f.ui, done)
 	f.call(t, "itemAction", "p", "echo", []any{v.Items[0].ID()}, map[string]any{})
 	v = waitView(t, f.ui, func(v *View) bool { return v.Cursor != 0 })
@@ -473,27 +473,28 @@ func TestPersistAndSearchPath(t *testing.T) {
 
 func TestOptionsOrder(t *testing.T) {
 	f := newFixture(t)
+	input := "g"
+	f.e.b.PatchGlobal(Options{SearchPath: "builder-global", Input: &input})
 	f.e.b.PatchLocal("loc", Options{SearchPath: "builder-local"})
-	o, _, err := f.e.options(
-		map[string]any{"name": "loc", "unique": true},
-		map[string]any{
-			"global": map[string]any{"searchPath": "vim-global", "input": "g"},
-			"local":  map[string]any{"loc": map[string]any{"searchPath": "vim-local"}},
-		})
+	o, _, err := f.e.options(map[string]any{"name": "loc", "unique": true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if o.SearchPath != "vim-local" || strOr(o.Input, "") != "g" || !boolOr(o.Unique, false) || o.UI != "test" {
+	if o.SearchPath != "builder-local" || strOr(o.Input, "") != "g" || !boolOr(o.Unique, false) || o.UI != "test" {
 		t.Errorf("options %+v", o)
 	}
-	if _, _, err := f.e.options(map[string]any{"sources": []any{"nope"}}, nil); err == nil {
+	o, _, err = f.e.options(map[string]any{"name": "loc", "searchPath": "start"})
+	if err != nil || o.SearchPath != "start" {
+		t.Errorf("options of the start: %+v, %v", o, err)
+	}
+	if _, _, err := f.e.options(map[string]any{"sources": []any{"nope"}}); err == nil {
 		t.Error("an unknown source must be an error")
 	}
 }
 
 func TestErrorsReported(t *testing.T) {
 	f := newFixture(t, failing{})
-	f.call(t, "start", map[string]any{"name": "e", "sources": []any{"fail"}}, map[string]any{}, map[string]any{})
+	f.call(t, "start", map[string]any{"name": "e", "sources": []any{"fail"}}, map[string]any{})
 	waitView(t, f.ui, done)
 	found := false
 	for _, c := range f.h.log() {
@@ -535,7 +536,7 @@ func TestAcks(t *testing.T) {
 			s.close()
 		}
 	})
-	f.call(t, "start", map[string]any{"name": "k", "sources": []any{"list"}}, map[string]any{}, map[string]any{})
+	f.call(t, "start", map[string]any{"name": "k", "sources": []any{"list"}}, map[string]any{})
 	v := waitView(t, f.ui, func(*View) bool { return true })
 	select {
 	case v2 := <-f.ui.views:
@@ -579,7 +580,7 @@ func TestNotDrawn(t *testing.T) {
 			s.close()
 		}
 	})
-	f.call(t, "start", map[string]any{"name": "n", "sources": []any{"list"}}, map[string]any{}, map[string]any{})
+	f.call(t, "start", map[string]any{"name": "n", "sources": []any{"list"}}, map[string]any{})
 	select {
 	case <-ui.skipped:
 	case <-time.After(5 * time.Second):
@@ -598,9 +599,9 @@ func TestNotDrawn(t *testing.T) {
 
 func TestPushPop(t *testing.T) {
 	f := newFixture(t, &listSource{name: "one", batches: [][]string{{"a"}}}, &listSource{name: "two", batches: [][]string{{"b"}}})
-	f.call(t, "start", map[string]any{"name": "pp", "sources": []any{"one"}}, map[string]any{}, map[string]any{})
+	f.call(t, "start", map[string]any{"name": "pp", "sources": []any{"one"}}, map[string]any{})
 	v1 := waitView(t, f.ui, done)
-	f.call(t, "start", map[string]any{"name": "pp", "sources": []any{"two"}, "push": true}, map[string]any{}, map[string]any{})
+	f.call(t, "start", map[string]any{"name": "pp", "sources": []any{"two"}, "push": true}, map[string]any{})
 	waitView(t, f.ui, func(v *View) bool { return done(v) && words(v.Items) == "b" })
 	f.call(t, "pop", "pp")
 	v := waitView(t, f.ui, func(v *View) bool { return words(v.Items) == "a" })
@@ -619,7 +620,7 @@ func TestAliases(t *testing.T) {
 	f.call(t, "start", map[string]any{
 		"name": "al", "sources": []any{"other"},
 		"actionParams": map[string]any{"shout": map[string]any{"x": "loud"}},
-	}, map[string]any{}, map[string]any{})
+	}, map[string]any{})
 	v := waitView(t, f.ui, done)
 	if len(v.Items) != 1 || v.Items[0].SourceName() != "other" {
 		t.Fatalf("items %+v", v.Items)
@@ -640,7 +641,7 @@ func TestUIDefaultAction(t *testing.T) {
 		"name": "ud", "sources": []any{"list"},
 		"uiOptions":    map[string]any{"test": map[string]any{"defaultAction": "other"}},
 		"actionParams": map[string]any{"other": map[string]any{"x": 2}},
-	}, map[string]any{}, map[string]any{})
+	}, map[string]any{})
 	v := waitView(t, f.ui, done)
 	f.call(t, "itemAction", "ud", "default", []any{v.Items[0].ID()}, map[string]any{})
 	if got := fmt.Sprint(f.kind.ran); got != "[x 2]" {
@@ -669,7 +670,7 @@ func TestVolatileMatchedAndKept(t *testing.T) {
 	f.call(t, "start", map[string]any{
 		"name": "sv", "sources": []any{"slow"},
 		"sourceOptions": map[string]any{"slow": map[string]any{"volatile": true}},
-	}, map[string]any{}, map[string]any{})
+	}, map[string]any{})
 	waitView(t, f.ui, func(v *View) bool { return done(v) && len(v.Items) == 2 })
 	f.call(t, "redraw", "sv", map[string]any{"input": "an"})
 	v := waitView(t, f.ui, func(v *View) bool {
@@ -707,7 +708,7 @@ func TestVolatileNoGap(t *testing.T) {
 	f.call(t, "start", map[string]any{
 		"name": "nw", "sources": []any{"new", "list"},
 		"sourceOptions": map[string]any{"new": map[string]any{"volatile": true}},
-	}, map[string]any{}, map[string]any{})
+	}, map[string]any{})
 	waitView(t, f.ui, done)
 	for _, in := range []string{"s", "sh", "sho"} {
 		f.call(t, "redraw", "nw", map[string]any{"input": in})
@@ -731,7 +732,7 @@ func TestExpandInput(t *testing.T) {
 	}
 	f.call(t, "start", map[string]any{
 		"name": "ex", "sources": []any{"list"}, "expandInput": true, "input": "~/",
-	}, map[string]any{}, map[string]any{})
+	}, map[string]any{})
 	v := waitView(t, f.ui, done)
 	if words(v.Items) != "/home/a" || v.Context.Input != "/home/" || v.Input != "~/" {
 		t.Errorf("start: %q %q %q", words(v.Items), v.Context.Input, v.Input)
@@ -750,7 +751,7 @@ func TestExpandInput(t *testing.T) {
 	// Without the option, as typed.
 	f.call(t, "start", map[string]any{
 		"name": "noex", "sources": []any{"list"}, "input": "~/",
-	}, map[string]any{}, map[string]any{})
+	}, map[string]any{})
 	v = waitView(t, f.ui, func(v *View) bool { return v.Context.Name == "noex" && done(v) })
 	if words(v.Items) != "~/c" {
 		t.Errorf("not expanded: %q", words(v.Items))
@@ -774,20 +775,11 @@ func TestCustomActions(t *testing.T) {
 		ran = append(ran, "ui hello")
 		return None, nil
 	})
-	f.h.answer = func(fn string, args []any) any {
-		if fn == "goda_fi#_call_action" {
-			return int64(Persist)
-		}
-		return nil
-	}
 	f.call(t, "start", map[string]any{"name": "ca", "sources": []any{"list"}},
-		map[string]any{}, map[string]any{"actions": map[string]any{
-			"kind": map[string]any{"word": []any{"grep"}},
-			"ui":   map[string]any{"test": []any{"vimui"}},
-		}})
+		map[string]any{})
 	v := waitView(t, f.ui, done)
 	id := v.Items[0].ID()
-	if names := f.call(t, "itemActionNames", "ca", []any{id}); fmt.Sprint(names) != "[echo grep mine]" {
+	if names := f.call(t, "itemActionNames", "ca", []any{id}); fmt.Sprint(names) != "[echo mine]" {
 		t.Errorf("names %v", names)
 	}
 	f.call(t, "itemAction", "ca", "mine", []any{id}, map[string]any{})
@@ -796,24 +788,6 @@ func TestCustomActions(t *testing.T) {
 	f.call(t, "uiAction", "ca", "hello", map[string]any{}, map[string]any{})
 	if fmt.Sprint(ran) != "[kind x source echo ui hello]" || len(f.kind.ran) != 0 {
 		t.Errorf("ran %q, kind %q", ran, f.kind.ran)
-	}
-	// A Vim action: the function gets the items, its flags are followed
-	// (Persist: shown again).
-	f.call(t, "itemAction", "ca", "grep", []any{id}, map[string]any{"p": 1})
-	waitView(t, f.ui, func(v *View) bool { return v.Open })
-	var call string
-	for _, c := range f.h.log() {
-		if strings.HasPrefix(c, "goda_fi#_call_action") {
-			call = c
-		}
-	}
-	if !strings.HasPrefix(call, "goda_fi#_call_action[kind word grep map[actionParams:map[p:1] context:") ||
-		!strings.Contains(call, "items:[map[") || !strings.Contains(call, "__id:") || !strings.Contains(call, "word:x") {
-		t.Errorf("call %s", call)
-	}
-	f.call(t, "uiAction", "ca", "vimui", map[string]any{}, map[string]any{})
-	if c := f.h.log()[len(f.h.log())-1]; !strings.HasPrefix(c, "goda_fi#_call_action[ui test vimui") {
-		t.Errorf("ui call %s", c)
 	}
 }
 
@@ -896,7 +870,7 @@ func TestTree(t *testing.T) {
 	ui := func(action string, id uint64, params map[string]any) {
 		f.call(t, "uiAction", "tree", action, params, map[string]any{"id": id})
 	}
-	f.call(t, "start", map[string]any{"name": "tree", "sources": []any{"tree"}}, map[string]any{}, map[string]any{})
+	f.call(t, "start", map[string]any{"name": "tree", "sources": []any{"tree"}}, map[string]any{})
 	v := waitView(t, f.ui, treeIs("a/:0 b:0"))
 
 	// Expanded: its children under it; the cursor on the first one.
@@ -935,7 +909,7 @@ func TestTree(t *testing.T) {
 // IsExpanded: expanded from the start.
 func TestTreeIsExpanded(t *testing.T) {
 	f := newFixture(t, treeSource{open: true})
-	f.call(t, "start", map[string]any{"name": "open", "sources": []any{"tree"}}, map[string]any{}, map[string]any{})
+	f.call(t, "start", map[string]any{"name": "open", "sources": []any{"tree"}}, map[string]any{})
 	waitView(t, f.ui, treeIs("a/:0+ c/:1 d:1 b:0"))
 }
 
@@ -946,7 +920,7 @@ func TestTreeGrouped(t *testing.T) {
 	ui := func(action string, id uint64, params map[string]any) {
 		f.call(t, "uiAction", "gr", action, params, map[string]any{"id": id})
 	}
-	f.call(t, "start", map[string]any{"name": "gr", "sources": []any{"tree"}}, map[string]any{}, map[string]any{})
+	f.call(t, "start", map[string]any{"name": "gr", "sources": []any{"tree"}}, map[string]any{})
 	v := waitView(t, f.ui, treeIs("g/:0 z:0"))
 	ui("expandItem", idOf(t, v, "g/"), map[string]any{"isGrouped": true})
 	v = waitView(t, f.ui, treeIs("g/h/i/:0+ j:1 k:1 z:0"))
@@ -990,7 +964,7 @@ func TestReentrantCall(t *testing.T) {
 			return "deadlock"
 		}
 	}
-	f.call(t, "start", map[string]any{"name": "re", "sources": []any{"list"}}, map[string]any{}, map[string]any{})
+	f.call(t, "start", map[string]any{"name": "re", "sources": []any{"list"}}, map[string]any{})
 	v := waitView(t, f.ui, done)
 	f.call(t, "itemAction", "re", "ask", []any{v.Items[0].ID()}, map[string]any{})
 }

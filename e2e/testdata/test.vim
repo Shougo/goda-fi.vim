@@ -140,25 +140,22 @@ endfunction
 
 let s:all = ['a.txt', 'b.go', 'msg.log', 'sub/c.txt', 'sub/deep/d.md']
 
-" Actions as Vim functions (goda_fi#custom#action()).
-function! s:grep(args) abort
+" Actions of the configuration (e2e/testbin) that call Vim functions.
+function! E2EGrep(name, path) abort
   " As ddu.vim's example: rg in the directory, in a session pushed.
-  call goda_fi#start({'name': a:args.options.name, 'push': v:true,
+  call goda_fi#start({'name': a:name, 'push': v:true,
         \ 'sources': [{'name': 'rg', 'params': {
-        \   'paths': [a:args.items[0].action.path], 'input': 'words'}}]})
-  return 0
+        \   'paths': [a:path], 'input': 'words'}}]})
 endfunction
 
-function! s:mark(args) abort
-  let g:marked = [a:args.context.name, a:args.actionParams,
-        \ map(copy(a:args.items), 'v:val.word')]
+function! E2EMark(name, params, words) abort
+  let g:marked = [a:name, a:params, a:words]
   " Persist: the UI stays.
   return 4
 endfunction
 
-function! s:ui_hello(args) abort
-  let g:ui_hello = map(copy(a:args.items), 'v:val.word')
-  return 0
+function! E2EHello(words) abort
+  let g:ui_hello = a:words
 endfunction
 
 function! s:run() abort
@@ -384,8 +381,8 @@ function! s:run() abort
   call s:check('isGrouped', s:flines('fx')[1:], ['- a/b/c/', '   x.txt', '  y.txt'])
   call goda_fi#ui#do_action('expandItem', {'mode': 'toggle', 'isGrouped': v:true})
   call s:wait('isGrouped collapse', {-> s:flines('fx')[1:] ==# ['+ a/', '  y.txt']})
-  " updateOptions and goda_fi#custom#get_current().
-  call s:check('get_current', goda_fi#custom#get_current().uiParams.filer.sort, 'filename')
+  " updateOptions and goda_fi#get_current().
+  call s:check('get_current', goda_fi#get_current().uiParams.filer.sort, 'filename')
   call goda_fi#ui#do_action('updateOptions', {'uiParams': {'filer': {'displayRoot': v:false}}})
   call goda_fi#ui#do_action('redraw')
   call s:wait('updateOptions', {-> s:flines('fx') ==# ['+ a/', '  y.txt']})
@@ -735,10 +732,8 @@ function! s:run() abort
   call s:check('expandInput none', s:wait_lines('exp', ['']), [''])
   call goda_fi#ui#do_action('quit')
 
-  " Actions as Vim functions, of a kind, a source and a UI.
-  call goda_fi#custom#action('kind', 'file', 'mark', function('s:mark'))
-  call goda_fi#custom#action('source', 'filerec,file', 'grep', function('s:grep'))
-  call goda_fi#custom#action('ui', 'ff', 'hello', function('s:ui_hello'))
+  " Actions of the configuration that call Vim functions, of a kind, a
+  " source and a UI.
   call s:start({'name': 'custom', 'sources': ['file']})
   call s:wait_lines('custom', ['a.txt', 'b.go', 'msg.log', 'sub/'])
   call s:check('custom names', index(goda#request('fi', 'itemActionNames', 'custom',

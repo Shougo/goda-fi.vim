@@ -3,6 +3,8 @@
 package main
 
 import (
+	"context"
+
 	"github.com/Shougo/goda-fi-ext/ext/column/filename"
 	"github.com/Shougo/goda-fi-ext/ext/filter/converterhldir"
 	"github.com/Shougo/goda-fi-ext/ext/filter/matcherfiles"
@@ -27,6 +29,7 @@ import (
 	"github.com/Shougo/goda-fi-ui-ff.vim/ui/ff"
 	"github.com/Shougo/goda-fi-ui-filer.vim/ui/filer"
 	"github.com/Shougo/goda-fi.vim/fi"
+	"github.com/Shougo/goda.vim/sdk"
 )
 
 func main() {
@@ -57,6 +60,31 @@ func main() {
 	b.AddKind(word.New())
 	b.AddKind(url.New())
 	b.AddActionAlias("tabopen", "open")
+	// Actions that call Vim functions (of testdata/test.vim): of a kind, a
+	// source and a UI.
+	b.AddKindAction("file", "mark", fi.Action{Run: func(ctx context.Context, h sdk.Host, a fi.ActionArgs) (fi.ActionResult, error) {
+		r, err := h.Call(ctx, "E2EMark", a.Context.Name, a.ActionParams, words(a.Items))
+		n, _ := sdk.Int(r)
+		return fi.ActionResult{Flags: fi.ActionFlags(n)}, err
+	}})
+	grep := fi.Action{Run: func(ctx context.Context, h sdk.Host, a fi.ActionArgs) (fi.ActionResult, error) {
+		var d kindfile.ActionData
+		if err := sdk.Decode(a.Items[0].Action, &d); err != nil {
+			return fi.ActionResult{}, err
+		}
+		_, err := h.Call(ctx, "E2EGrep", a.Context.Name, d.Path)
+		return fi.ActionResult{}, err
+	}}
+	b.AddSourceAction("file", "grep", grep)
+	b.AddSourceAction("filerec", "grep", grep)
+	b.AddUIAction("ff", "hello", func(ctx context.Context, h sdk.Host, a fi.UIActionArgs) (fi.ActionFlags, error) {
+		var ws []string
+		if a.Item != nil {
+			ws = []string{a.Item.Word}
+		}
+		_, err := h.Call(ctx, "E2EHello", ws)
+		return fi.None, err
+	})
 	b.PatchGlobal(fi.Options{
 		UI: "ff",
 		SourceOptions: map[string]fi.SourceOptions{
@@ -75,4 +103,12 @@ func main() {
 		},
 	})
 	b.Main()
+}
+
+func words(items []fi.Item) []string {
+	ws := []string{}
+	for _, it := range items {
+		ws = append(ws, it.Word)
+	}
+	return ws
 }
