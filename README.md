@@ -5,10 +5,9 @@ A fuzzy finder for Vim and Neovim, built on
 [ddu.vim](https://github.com/Shougo/ddu.vim): the same options, the same
 extensions, written in Go and configured in Go — a small program you own.
 
-Status: early. The core (sessions, gathering as items come, filters, item
-actions, resume, push/pop, aliases) and the UI `ff` (ddu-ui-ff: a buffer in
-a split or floating window, filtered from the command line, previews,
-autoAction) work, with:
+The core (sessions, gathering as items come, filters, item actions, resume,
+push/pop, aliases) and the UI `ff` (ddu-ui-ff: a buffer in a split or floating
+window, filtered from the command line, previews, autoAction) work, with:
 
 - sources: `file`, `filerec`, `fileold`, `buffer`, `filepoint`,
   `fileexternal`, `rg`, `line`, `register`, `pathhistory`, `app`
@@ -23,6 +22,9 @@ The UIs and the extensions are in repositories of their own:
 of ff: it needs goda-fi-ui-ff.vim too), and
 [goda-fi-ext](https://github.com/Shougo/goda-fi-ext) (the sources, filters,
 kinds and columns: Go packages, not a Vim plugin).
+
+Before 1.0.0, a change that breaks extensions or configurations is made only
+in a minor version and said in its release.
 
 Trees are shown by `ff` (`displayTree`, `expandItem`) and by the filer `filer`
 (ddu-ui-filer, with the column `filename`), with the file operations of
