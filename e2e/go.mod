@@ -3,13 +3,13 @@ module github.com/Shougo/goda-fi.vim/e2e
 go 1.26.0
 
 require (
-	github.com/Shougo/goda-fi-ext v0.1.0
-	github.com/Shougo/goda-fi-ui-ff.vim v0.2.1
+	github.com/Shougo/goda-fi-ext v0.2.1
+	github.com/Shougo/goda-fi-ui-ff.vim v0.2.2
 	github.com/Shougo/goda-fi-ui-filer.vim v0.1.0
-	github.com/Shougo/goda-fi.vim v0.2.0
+	github.com/Shougo/goda-fi.vim v0.3.0
 )
 
-require github.com/Shougo/goda.vim v0.12.0 // indirect
+require github.com/Shougo/goda.vim v0.14.0
 
 // This goda-fi.vim.
 replace github.com/Shougo/goda-fi.vim => ../
